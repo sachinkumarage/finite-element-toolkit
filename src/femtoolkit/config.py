@@ -1,15 +1,17 @@
 """Minimal package configuration for the Finite Element Toolkit.
 
-Version 1 keeps configuration to a bare minimum: package metadata and the
-default logging level. Numerical solver settings (tolerances, iteration
-limits, etc.) belong to future versions once a solver actually exists.
+Configuration is kept to a bare minimum: package metadata and the default
+logging level. Advanced solver settings (convergence tolerances, iteration
+limits, sparse-solver backends, etc.) belong to future versions once the
+toolkit supports more than the basic dense linear solve introduced in
+Version 2.
 """
 
 from __future__ import annotations
 
 import logging
 
-__version__: str = "1.0.0"
+__version__: str = "2.0.0"
 """Current version of the Finite Element Toolkit package."""
 
 PACKAGE_NAME: str = "femtoolkit"
