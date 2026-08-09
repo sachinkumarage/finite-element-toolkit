@@ -1,16 +1,34 @@
 """Mesh container.
 
 This module defines :class:`Mesh`, a simple container that manages the
-nodes and elements of a finite element model. Version 1 provides only
-storage, retrieval, and referential-integrity validation; it does not
-generate, refine, or otherwise process geometry.
+nodes and elements of a finite element model. It provides only storage,
+retrieval, and referential-integrity validation; it does not generate,
+refine, or otherwise process geometry.
 """
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+from typing import Protocol, runtime_checkable
+
 from femtoolkit.exceptions import DuplicateIDError, EntityNotFoundError, ValidationError
-from femtoolkit.mesh.element import Element
 from femtoolkit.mesh.node import Node
+
+
+@runtime_checkable
+class MeshElement(Protocol):
+    """Structural type for anything a :class:`Mesh` can store as an element.
+
+    The mesh only needs an element's ID and the nodes it connects; it does
+    not care which concrete element type is used. Both the generic
+    :class:`~femtoolkit.mesh.element.Element` (Version 1) and
+    :class:`~femtoolkit.mesh.bar_element.BarElement` (Version 3) satisfy
+    this protocol, so a single :class:`Mesh` implementation can hold
+    either without a shared base class.
+    """
+
+    id: int
+    nodes: Sequence[Node]
 
 
 class Mesh:
@@ -31,7 +49,7 @@ class Mesh:
     def __init__(self) -> None:
         """Create an empty mesh with no nodes or elements."""
         self._nodes: dict[int, Node] = {}
-        self._elements: dict[int, Element] = {}
+        self._elements: dict[int, MeshElement] = {}
 
     def add_node(self, node: Node) -> None:
         """Add a node to the mesh.
@@ -64,7 +82,7 @@ class Mesh:
         except KeyError as error:
             raise EntityNotFoundError(f"No node with id {node_id} found in the mesh.") from error
 
-    def add_element(self, element: Element) -> None:
+    def add_element(self, element: MeshElement) -> None:
         """Add an element to the mesh.
 
         Args:
@@ -89,7 +107,7 @@ class Mesh:
 
         self._elements[element.id] = element
 
-    def get_element(self, element_id: int) -> Element:
+    def get_element(self, element_id: int) -> MeshElement:
         """Retrieve an element by its ID.
 
         Args:
@@ -114,6 +132,6 @@ class Mesh:
         return list(self._nodes.values())
 
     @property
-    def elements(self) -> list[Element]:
+    def elements(self) -> list[MeshElement]:
         """All elements currently in the mesh, in insertion order."""
         return list(self._elements.values())

@@ -4,6 +4,10 @@ from femtoolkit.exceptions.exceptions import (
     DuplicateIDError,
     EntityNotFoundError,
     FiniteElementToolkitError,
+    InsufficientConstraintsError,
+    InvalidAnalysisError,
+    InvalidElementError,
+    SingularSystemError,
     ValidationError,
 )
 
@@ -11,5 +15,9 @@ __all__ = [
     "DuplicateIDError",
     "EntityNotFoundError",
     "FiniteElementToolkitError",
+    "InsufficientConstraintsError",
+    "InvalidAnalysisError",
+    "InvalidElementError",
+    "SingularSystemError",
     "ValidationError",
 ]

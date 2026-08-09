@@ -6,6 +6,7 @@ from femtoolkit.analysis.assembly import ElementStiffnessContribution, assemble_
 from femtoolkit.analysis.boundary_conditions import BoundaryCondition
 from femtoolkit.analysis.dof import DOFMap, TranslationDOF
 from femtoolkit.analysis.loads import NodalLoad
+from femtoolkit.analysis.static_linear import StaticLinearAnalysis
 from femtoolkit.analysis.stiffness import bar_element_stiffness
 from femtoolkit.analysis.system import LinearSystem, build_force_vector, solve
 
@@ -15,6 +16,7 @@ __all__ = [
     "ElementStiffnessContribution",
     "LinearSystem",
     "NodalLoad",
+    "StaticLinearAnalysis",
     "TranslationDOF",
     "assemble_global_stiffness",
     "bar_element_stiffness",

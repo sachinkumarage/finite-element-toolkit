@@ -40,3 +40,37 @@ class EntityNotFoundError(FiniteElementToolkitError):
     For example, looking up a node ID that has not been added to the
     :class:`Mesh`.
     """
+
+
+class InvalidAnalysisError(FiniteElementToolkitError):
+    """Raised when a structural analysis cannot be set up as requested.
+
+    Examples include attempting to solve an analysis whose mesh has no
+    nodes or no elements.
+    """
+
+
+class InvalidElementError(FiniteElementToolkitError):
+    """Raised when an analysis encounters an element type it cannot solve.
+
+    For example, a :class:`~femtoolkit.analysis.static_linear.StaticLinearAnalysis`
+    only supports :class:`~femtoolkit.mesh.bar_element.BarElement` instances.
+    """
+
+
+class InsufficientConstraintsError(FiniteElementToolkitError):
+    """Raised when a structural analysis has no boundary conditions.
+
+    Without at least one prescribed-displacement boundary condition, the
+    global stiffness matrix is singular and the system cannot be solved.
+    """
+
+
+class SingularSystemError(FiniteElementToolkitError):
+    """Raised when the reduced global stiffness matrix is singular.
+
+    This typically indicates that the structure is a mechanism: even
+    though boundary conditions were supplied, the free degrees of freedom
+    are not fully restrained (for example, a substructure that is not
+    connected to any support).
+    """
