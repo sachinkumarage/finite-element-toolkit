@@ -2,7 +2,7 @@
 
 An open-source Python toolkit for developing finite element analysis (FEA) capabilities, built incrementally as a series of versioned milestones.
 
-**This is the Version 3 release.** Version 1 established the project's architecture and core domain model. Version 2 added the basic mathematical foundation for FEA: degrees of freedom, boundary conditions, nodal loads, the 1D bar element stiffness matrix, global stiffness matrix assembly, and a basic linear solver for `[K]{u} = {F}`. Version 3 turns that foundation into a useful, validated **1D structural analysis** capability: a dedicated bar element with cross-sectional area, a `StaticLinearAnalysis` workflow, and results giving displacement, reaction, strain, stress, and axial force. It does **not** yet contain beam, truss, 2D, or 3D elements, nonlinear or dynamic analysis, or visualization.
+**This is the Version 4 release.** Version 1 established the project's architecture and core domain model. Version 2 added the basic mathematical foundation for FEA. Version 3 turned that into a validated **1D structural analysis** capability (a bar element, `StaticLinearAnalysis`, and results). Version 4 extends the same analysis workflow to **2D truss structures**: two translational DOFs per node, a `TrussElement2D` transformed from local to global coordinates via its direction cosines, and X/Y loads, constraints, displacements, reactions, and member forces. It does **not** yet contain beam, frame, plate, shell, 2D continuum, or 3D elements, or nonlinear/dynamic analysis, or visualization.
 
 ## Current Features
 
@@ -33,7 +33,14 @@ An open-source Python toolkit for developing finite element analysis (FEA) capab
 - **Static linear analysis** — `StaticLinearAnalysis`, orchestrating DOF mapping, assembly, and solving for a mesh of bar elements
 - **Analysis results** — `AnalysisResult`, exposing nodal displacement, reaction force, and per-element strain/stress/axial force
 - **Domain-specific errors** — `InvalidAnalysisError`, `InvalidElementError`, `InsufficientConstraintsError`, `SingularSystemError`
-- **Tests** — a pytest suite covering all three versions, including a dedicated engineering-validation suite (`tests/validation/`) checking displacement, reactions, strain, stress, axial force, tension/compression signs, mixed materials, global equilibrium, and the strain-energy identity against independently derived analytical results
+
+**Version 4 — 2D truss analysis**
+
+- **2D truss element** — `TrussElement2D`, a two-node, two-DOF-per-node axial element computing its own length, direction cosines, stiffness matrix, strain, stress, and axial force
+- **Element interface** — `StructuralElement`, a lightweight protocol letting `StaticLinearAnalysis` and `AnalysisResult` work with any element type (bar or truss) without importing it by name
+- **Reusable numerical infrastructure** — assembly, the linear system, and the solver were generalized in Version 4 to support any number of DOFs per node, so `BarElement` and `TrussElement2D` share the exact same solve path
+- **2D results** — `result.node_displacement(node_id)` and `result.node_reaction(node_id)` return `(x, y)` tuples; `displacement()`/`reaction()` gained an optional `dof` argument
+- **Tests** — a pytest suite covering all four versions, including a validation suite (`tests/validation/`) with a horizontal-truss backward check against the Version 3 bar formula, a triangular truss solved independently by the method of joints, a symmetric-truss consistency check, and a multi-material truss
 
 ## Installation
 
@@ -90,7 +97,8 @@ node_1, node_2 = Node(id=1, x=0.0, y=0.0, z=0.0), Node(id=2, x=2.0, y=0.0, z=0.0
 
 dof_map = DOFMap(node_ids=[1, 2], dofs_per_node=1)
 local_k = bar_element_stiffness(youngs_modulus=steel.youngs_modulus, area=0.01, length=2.0)
-global_k = assemble_global_stiffness(dof_map, [ElementStiffnessContribution((1, 2), local_k)])
+dof_keys = ((1, 0), (2, 0))  # (node_id, dof); dof 0 = X (axial direction)
+global_k = assemble_global_stiffness(dof_map, [ElementStiffnessContribution(dof_keys, local_k)])
 
 forces = build_force_vector(dof_map, [NodalLoad(node_id=2, dof=0, value=1000.0)])
 system = LinearSystem(
@@ -131,6 +139,37 @@ print(result.displacement(2))  # 1e-06 m
 print(result.reaction(1))  # -1000.0 N
 print(result.element_stress(1))  # 100000.0 Pa
 print(result.element_strain(1))  # 5e-07
+print(result.element_axial_force(1))  # 1000.0 N
+```
+
+Solving a small 2D truss with Version 4 (see [Version 4](#version-4) below for the theory):
+
+```python
+from femtoolkit.analysis import BoundaryCondition, NodalLoad, StaticLinearAnalysis, TranslationDOF
+from femtoolkit.materials import Material
+from femtoolkit.mesh import Mesh, Node, TrussElement2D
+from femtoolkit.sections import CrossSection
+
+steel = Material(name="Steel", density=7850.0, youngs_modulus=200e9, poissons_ratio=0.3)
+section = CrossSection(area=0.01)
+node_1 = Node(id=1, x=0.0, y=0.0, z=0.0)
+node_2 = Node(id=2, x=2.0, y=0.0, z=0.0)
+truss = TrussElement2D(id=1, nodes=(node_1, node_2), material=steel, cross_section=section)
+
+mesh = Mesh()
+mesh.add_node(node_1)
+mesh.add_node(node_2)
+mesh.add_element(truss)
+
+analysis = StaticLinearAnalysis(mesh)
+analysis.add_boundary_condition(BoundaryCondition(node_id=1, dof=TranslationDOF.X, value=0.0))
+analysis.add_boundary_condition(BoundaryCondition(node_id=1, dof=TranslationDOF.Y, value=0.0))
+analysis.add_boundary_condition(BoundaryCondition(node_id=2, dof=TranslationDOF.Y, value=0.0))
+analysis.add_load(NodalLoad(node_id=2, dof=TranslationDOF.X, value=1000.0))
+result = analysis.solve()
+
+print(result.node_displacement(2))  # (1e-06, 0.0) m -- matches the 1D bar solution
+print(result.node_reaction(1))  # (-1000.0, 0.0) N
 print(result.element_axial_force(1))  # 1000.0 N
 ```
 
@@ -246,16 +285,90 @@ Every major numerical feature is checked against an independently derived expect
 
 Version 3 does not include beam elements, 2D or 3D elements, nonlinear or dynamic analysis, thermal loads, automatic mesh generation, or visualization. See the [Roadmap](#roadmap).
 
+## Version 4
+
+Version 4 extends the toolkit's structural analysis capability from 1D bars to **2D pin-jointed trusses**: straight two-node members that carry only axial force (no bending, shear, or torsion), connected at joints that transmit force but not moment.
+
+**Engineering assumptions:** linear elastic material behavior, small deformation, static loading, pin-jointed connections (axial force only, no bending), constant cross-sectional area per member, and the same consistent SI unit system as Version 3.
+
+### 2D degrees of freedom
+
+Every node now has two translational DOFs, `ux` and `uy`. `DOFMap` already supported an arbitrary number of DOFs per node since Version 2 (`dofs_per_node`); Version 4 simply uses `dofs_per_node=2` and activates `TranslationDOF.Y` alongside `TranslationDOF.X`.
+
+### Geometry and direction cosines
+
+For a truss element from `(x1, y1)` to `(x2, y2)`:
+
+```text
+L = sqrt((x2-x1)^2 + (y2-y1)^2)
+c = (x2-x1) / L   (cosine of the element's orientation angle)
+s = (y2-y1) / L   (sine of the element's orientation angle)
+```
+
+### 2D truss stiffness matrix
+
+The element's local axial stiffness `k = EA/L` is transformed into global X/Y coordinates using its direction cosines. For nodal DOFs ordered `[ux1, uy1, ux2, uy2]`:
+
+```text
+EA/L *
+[ c²    cs   -c²   -cs ]
+[ cs    s²   -cs   -s² ]
+[-c²   -cs    c²    cs ]
+[-cs   -s²    cs    s² ]
+```
+
+A horizontal element (`c=1, s=0`) reduces this exactly to the Version 3 bar stiffness matrix in its `ux1/ux2` sub-block, with zero coupling to `uy` — verified directly in `tests/test_stiffness.py`.
+
+### Reusable numerical infrastructure
+
+Rather than duplicating assembly and solving for a second element type, Version 4 generalized the shared machinery: every element (bar or truss) exposes a `dof_keys()` method returning the `(node_id, dof)` pair for each row/column of its `stiffness_matrix`, plus `dofs_per_node` and `strain_from_dofs`/`stress_from_dofs`/`axial_force_from_dofs`. This is the `StructuralElement` protocol (`femtoolkit.analysis.element`). `assemble_global_stiffness`, `LinearSystem`, `build_force_vector`, and `solve` were already DOF-count-agnostic or became so with this change, so `StaticLinearAnalysis` and `AnalysisResult` work identically for `BarElement` and `TrussElement2D` without referencing either class by name.
+
+### Strain, stress, and axial force
+
+Global nodal displacements are projected onto the element's local axis using its direction cosines before computing strain:
+
+```text
+u1' = c*ux1 + s*uy1
+u2' = c*ux2 + s*uy2
+epsilon = (u2' - u1') / L
+sigma = E * epsilon
+N = sigma * A
+```
+
+Positive strain, stress, and axial force mean **tension**; negative means **compression** — the same convention as Version 3.
+
+### 2D loads, boundary conditions, and results
+
+`NodalLoad` and `BoundaryCondition` already accepted a `dof` argument since Version 2; for 2D work, pass `TranslationDOF.X` or `TranslationDOF.Y` instead of a bare `0`/`1` for clarity. `AnalysisResult.displacement()` and `.reaction()` gained an optional `dof` parameter (defaulting to `X`, preserving the Version 3 single-argument call), and `node_displacement()`/`node_reaction()` return `(x, y)` tuples directly.
+
+### Structural instability
+
+An insufficiently constrained 2D structure — for example, a single truss member pinned at one end with the other end completely free — has zero stiffness against motion perpendicular to its own axis, exactly like a real pin-jointed member. `StaticLinearAnalysis.solve()` detects the resulting singular matrix and raises `SingularSystemError`, reusing the same exception introduced in Version 3 rather than adding a redundant one.
+
+### Engineering validation
+
+Version 4 adds four validation cases in `tests/validation/`:
+
+- **Horizontal truss** — a purely axial 2D truss member must reproduce the Version 3 analytical bar solution `u = FL/(EA)` exactly; an important backward-compatibility check for the shared infrastructure
+- **Triangular truss** — a three-member "tent" truss, statically determinate, solved independently by the method of joints (member forces, reactions, and apex displacement cross-checked via the unit-load/virtual-work method)
+- **Symmetric truss** — a consistency check: symmetric geometry, supports, and loading must produce mirror-symmetric displacements, reactions, and member forces
+- **Multi-material truss** — a steel + aluminum truss confirming each element uses its own `E` and `A` while sharing a common axial force where statics requires it
+
+### Limitations
+
+Version 4 does not include beam, frame, plate, shell, 2D continuum, or 3D elements, nonlinear or dynamic analysis, thermal loads, automatic mesh generation, or visualization. See the [Roadmap](#roadmap).
+
 ## Project Structure
 
 ```text
 finite-element-toolkit/
 ├── src/femtoolkit/
 │   ├── materials/          # Material data model
-│   ├── mesh/               # Node, Element, BarElement, and Mesh
+│   ├── mesh/               # Node, Element, BarElement, TrussElement2D, Mesh
 │   ├── sections/           # CrossSection
 │   ├── analysis/           # DOFs, boundary conditions, loads, stiffness
-│   │                       # matrix, assembly, linear system, and the
+│   │                       # matrix, assembly, linear system, the
+│   │                       # StructuralElement protocol, and the
 │   │                       # StaticLinearAnalysis workflow
 │   ├── results/            # AnalysisResult
 │   ├── units/               # SI unit constants
@@ -294,15 +407,17 @@ python examples/create_basic_model.py        # Version 1: build and print a mini
 python examples/basic_bar_analysis.py         # Version 2: solve a minimal axial bar problem
 python examples/basic_1d_bar_analysis.py      # Version 3: full single-bar analysis workflow
 python examples/two_element_bar_analysis.py   # Version 3: two-element, mixed-material bar chain
+python examples/basic_2d_truss_analysis.py    # Version 4: triangular 2D truss analysis
+python examples/multi_material_truss.py       # Version 4: multi-material, multi-orientation truss
 ```
 
 ## Roadmap
 
 Future versions will build a more complete FEA solver on top of this foundation. None of the following is implemented yet:
 
-- **Version 4** — Beam analysis (bending, rotational DOFs, moment, shear, deflection)
-- **Version 5** — 2D finite elements
-- **Version 6** — Advanced mesh and visualization
+- **Version 5** — Beam/frame analysis (bending, rotational DOFs, moment, shear, deflection)
+- **Version 6** — 2D continuum elements (plane stress/strain)
+- **Version 7** — Advanced mesh and visualization
 - **Later** — 3D elements, GUI, reporting, and more
 
 ## License

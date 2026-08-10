@@ -30,6 +30,7 @@ from femtoolkit.analysis import (
     ElementStiffnessContribution,
     LinearSystem,
     NodalLoad,
+    TranslationDOF,
     assemble_global_stiffness,
     bar_element_stiffness,
     build_force_vector,
@@ -62,9 +63,10 @@ def main() -> None:
     local_stiffness = bar_element_stiffness(
         youngs_modulus=steel.youngs_modulus, area=AREA, length=length
     )
+    dof_keys = ((node_1.id, TranslationDOF.X), (node_2.id, TranslationDOF.X))
     global_stiffness = assemble_global_stiffness(
         dof_map,
-        [ElementStiffnessContribution((node_1.id, node_2.id), local_stiffness)],
+        [ElementStiffnessContribution(dof_keys, local_stiffness)],
     )
 
     boundary_conditions = [BoundaryCondition(node_id=node_1.id, dof=0, value=0.0)]

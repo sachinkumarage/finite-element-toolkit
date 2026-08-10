@@ -104,7 +104,7 @@ def test_single_bar_energy_identity() -> None:
 
     dof_map = DOFMap(node_ids=[1, 2], dofs_per_node=1)
     stiffness = assemble_global_stiffness(
-        dof_map, [ElementStiffnessContribution((1, 2), bar.stiffness_matrix)]
+        dof_map, [ElementStiffnessContribution(bar.dof_keys(), bar.stiffness_matrix)]
     )
     applied_forces = build_force_vector(dof_map, [NodalLoad(node_id=2, dof=0, value=APPLIED_FORCE)])
 

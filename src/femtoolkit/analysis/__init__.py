@@ -7,7 +7,7 @@ from femtoolkit.analysis.boundary_conditions import BoundaryCondition
 from femtoolkit.analysis.dof import DOFMap, TranslationDOF
 from femtoolkit.analysis.loads import NodalLoad
 from femtoolkit.analysis.static_linear import StaticLinearAnalysis
-from femtoolkit.analysis.stiffness import bar_element_stiffness
+from femtoolkit.analysis.stiffness import bar_element_stiffness, truss_element_stiffness_2d
 from femtoolkit.analysis.system import LinearSystem, build_force_vector, solve
 
 __all__ = [
@@ -22,4 +22,5 @@ __all__ = [
     "bar_element_stiffness",
     "build_force_vector",
     "solve",
+    "truss_element_stiffness_2d",
 ]

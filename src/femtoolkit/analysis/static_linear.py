@@ -1,12 +1,14 @@
 """Static linear structural analysis workflow.
 
 This module defines :class:`StaticLinearAnalysis`, which orchestrates the
-Version 2 mathematical foundation (DOF mapping, stiffness assembly, the
+reusable mathematical foundation (DOF mapping, stiffness assembly, the
 linear system, and the solver) against a :class:`~femtoolkit.mesh.mesh.Mesh`
-of :class:`~femtoolkit.mesh.bar_element.BarElement` instances. The analysis
-itself performs no numerical computation; it delegates to the existing
-``analysis`` building blocks and packages the outcome into an
-:class:`~femtoolkit.results.analysis_result.AnalysisResult`.
+of structural elements. The analysis itself performs no element-specific
+computation; it works against any element that satisfies the
+:class:`~femtoolkit.analysis.element.StructuralElement` protocol --
+:class:`~femtoolkit.mesh.bar_element.BarElement` (one axial DOF per node)
+and :class:`~femtoolkit.mesh.truss_element.TrussElement2D` (two DOFs per
+node) both qualify, without this module importing either class by name.
 """
 
 from __future__ import annotations
@@ -18,6 +20,7 @@ import numpy as np
 from femtoolkit.analysis.assembly import ElementStiffnessContribution, assemble_global_stiffness
 from femtoolkit.analysis.boundary_conditions import BoundaryCondition
 from femtoolkit.analysis.dof import DOFMap
+from femtoolkit.analysis.element import StructuralElement
 from femtoolkit.analysis.loads import NodalLoad
 from femtoolkit.analysis.system import LinearSystem, build_force_vector, solve
 from femtoolkit.exceptions import (
@@ -26,25 +29,30 @@ from femtoolkit.exceptions import (
     InvalidElementError,
     SingularSystemError,
 )
-from femtoolkit.mesh.bar_element import BarElement
-from femtoolkit.mesh.mesh import Mesh
 
 if TYPE_CHECKING:
-    # Imported only for type checking: femtoolkit.results depends on
-    # femtoolkit.analysis (via DOFMap/TranslationDOF), so a module-level
-    # import here would create a circular import. The real import happens
-    # inside solve(), once both packages have finished loading.
+    # Imported only for type checking: femtoolkit.mesh and
+    # femtoolkit.results both interact with femtoolkit.analysis, so a
+    # module-level import here would create a circular import. The real
+    # imports happen inside solve(), once every package has finished
+    # loading.
+    from femtoolkit.mesh.mesh import Mesh
     from femtoolkit.results.analysis_result import AnalysisResult
 
 
 class StaticLinearAnalysis:
-    """A linear static structural analysis over a mesh of bar elements.
+    """A linear static structural analysis over a mesh of structural elements.
 
     The analysis assumes linear elastic material behavior, small
     deformations, and static (time-invariant) loading. It solves the
-    equilibrium equation ``[K]{u} = {F}`` for the mesh's bar elements and
+    equilibrium equation ``[K]{u} = {F}`` for the mesh's elements and
     reports displacements, reactions, and per-element strain, stress, and
     axial force through the returned :class:`AnalysisResult`.
+
+    All elements in the mesh must activate the same number of DOFs per
+    node (for example, a mesh of :class:`~femtoolkit.mesh.bar_element.BarElement`
+    instances, or a mesh of :class:`~femtoolkit.mesh.truss_element.TrussElement2D`
+    instances, but not a mix of both).
 
     Example:
         >>> analysis = StaticLinearAnalysis(mesh)
@@ -57,9 +65,10 @@ class StaticLinearAnalysis:
         """Create an analysis for the given mesh.
 
         Args:
-            mesh: The mesh to analyze. Its elements must all be
-                :class:`~femtoolkit.mesh.bar_element.BarElement` instances;
-                this is checked when :meth:`solve` is called.
+            mesh: The mesh to analyze. Its elements must all satisfy the
+                :class:`~femtoolkit.analysis.element.StructuralElement`
+                protocol and share the same ``dofs_per_node``; this is
+                checked when :meth:`solve` is called.
         """
         self._mesh = mesh
         self._loads: list[NodalLoad] = []
@@ -90,8 +99,10 @@ class StaticLinearAnalysis:
 
         Raises:
             InvalidAnalysisError: If the mesh has no nodes or no elements.
-            InvalidElementError: If the mesh contains an element that is
-                not a :class:`~femtoolkit.mesh.bar_element.BarElement`.
+            InvalidElementError: If the mesh contains an element that does
+                not satisfy the
+                :class:`~femtoolkit.analysis.element.StructuralElement`
+                protocol, or elements with inconsistent ``dofs_per_node``.
             InsufficientConstraintsError: If no boundary conditions have
                 been added.
             SingularSystemError: If the structure is insufficiently
@@ -109,22 +120,30 @@ class StaticLinearAnalysis:
         if not elements:
             raise InvalidAnalysisError("Cannot solve an analysis whose mesh has no elements.")
         for element in elements:
-            if not isinstance(element, BarElement):
+            if not isinstance(element, StructuralElement):
                 raise InvalidElementError(
-                    "StaticLinearAnalysis only supports BarElement instances, "
-                    f"got {type(element).__name__} (id={element.id})."
+                    "StaticLinearAnalysis only supports elements implementing the "
+                    f"structural element interface, got {type(element).__name__} "
+                    f"(id={element.id})."
                 )
+
+        dofs_per_node_values = {element.dofs_per_node for element in elements}
+        if len(dofs_per_node_values) > 1:
+            raise InvalidElementError(
+                "StaticLinearAnalysis requires all elements in a mesh to use the "
+                f"same number of DOFs per node, got: {sorted(dofs_per_node_values)}."
+            )
+        dofs_per_node = dofs_per_node_values.pop()
+
         if not self._boundary_conditions:
             raise InsufficientConstraintsError(
                 "StaticLinearAnalysis requires at least one boundary condition."
             )
 
-        dof_map = DOFMap(node_ids=[node.id for node in nodes], dofs_per_node=1)
+        dof_map = DOFMap(node_ids=[node.id for node in nodes], dofs_per_node=dofs_per_node)
 
         contributions = [
-            ElementStiffnessContribution(
-                (element.nodes[0].id, element.nodes[1].id), element.stiffness_matrix
-            )
+            ElementStiffnessContribution(element.dof_keys(), element.stiffness_matrix)
             for element in elements
         ]
         global_stiffness = assemble_global_stiffness(dof_map, contributions)

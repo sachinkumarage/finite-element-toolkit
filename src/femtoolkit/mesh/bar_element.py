@@ -15,12 +15,15 @@ Sign convention: positive strain, stress, and axial force represent
 from __future__ import annotations
 
 import math
+from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import ClassVar
 
 import numpy as np
 
 from femtoolkit.exceptions import ValidationError
 from femtoolkit.materials import Material
+from femtoolkit.mesh._element_validation import validate_two_node_element
 from femtoolkit.mesh.node import Node
 from femtoolkit.sections import CrossSection
 
@@ -68,6 +71,11 @@ class BarElement:
     material: Material
     cross_section: CrossSection
 
+    dofs_per_node: ClassVar[int] = 1
+    """Number of DOFs this element activates per node (see
+    :class:`~femtoolkit.analysis.element.StructuralElement`).
+    """
+
     def __post_init__(self) -> None:
         """Validate the bar element immediately after construction.
 
@@ -78,25 +86,9 @@ class BarElement:
                 ``cross_section`` is not a :class:`CrossSection`, or the
                 resulting element length is not positive.
         """
-        if not isinstance(self.id, int) or isinstance(self.id, bool) or self.id <= 0:
-            raise ValidationError(f"BarElement id must be a positive integer, got {self.id!r}.")
-
-        if len(self.nodes) != 2 or not all(isinstance(node, Node) for node in self.nodes):
-            raise ValidationError(
-                f"BarElement nodes must be a pair of Node instances, got {self.nodes!r}."
-            )
-        if self.nodes[0].id == self.nodes[1].id:
-            raise ValidationError("BarElement requires two distinct nodes.")
-
-        if not isinstance(self.material, Material):
-            raise ValidationError(
-                f"BarElement material must be a Material instance, got {self.material!r}."
-            )
-        if not isinstance(self.cross_section, CrossSection):
-            raise ValidationError(
-                "BarElement cross_section must be a CrossSection instance, "
-                f"got {self.cross_section!r}."
-            )
+        validate_two_node_element(
+            "BarElement", self.id, self.nodes, self.material, self.cross_section
+        )
 
         if not math.isfinite(self.length) or self.length <= 0:
             raise ValidationError(
@@ -108,6 +100,20 @@ class BarElement:
     def length(self) -> float:
         """Element length, ``L = |x2 - x1|``, using only the node X coordinates."""
         return abs(self.nodes[1].x - self.nodes[0].x)
+
+    def dof_keys(self) -> tuple[tuple[int, int], ...]:
+        """The ``(node_id, dof)`` pairs matching ``stiffness_matrix``'s rows/columns.
+
+        A bar element has one axial DOF per node, so this returns
+        ``((node_1.id, X), (node_2.id, X))``.
+        """
+        # Imported locally: see the note on `stiffness_matrix` below.
+        from femtoolkit.analysis.dof import TranslationDOF
+
+        return (
+            (self.nodes[0].id, TranslationDOF.X),
+            (self.nodes[1].id, TranslationDOF.X),
+        )
 
     @property
     def stiffness_matrix(self) -> np.ndarray:
@@ -174,3 +180,18 @@ class BarElement:
             compression.
         """
         return self.stress(u1, u2) * self.cross_section.area
+
+    def strain_from_dofs(self, displacements: Sequence[float]) -> float:
+        """Compute axial strain from ``[u1, u2]``, ordered per :meth:`dof_keys`."""
+        u1, u2 = displacements
+        return self.strain(u1, u2)
+
+    def stress_from_dofs(self, displacements: Sequence[float]) -> float:
+        """Compute axial stress from ``[u1, u2]``, ordered per :meth:`dof_keys`."""
+        u1, u2 = displacements
+        return self.stress(u1, u2)
+
+    def axial_force_from_dofs(self, displacements: Sequence[float]) -> float:
+        """Compute axial force from ``[u1, u2]``, ordered per :meth:`dof_keys`."""
+        u1, u2 = displacements
+        return self.axial_force(u1, u2)
