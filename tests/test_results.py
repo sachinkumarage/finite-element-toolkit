@@ -3,10 +3,16 @@
 import pytest
 from numpy.testing import assert_allclose
 
-from femtoolkit.analysis import BoundaryCondition, NodalLoad, StaticLinearAnalysis
-from femtoolkit.exceptions import EntityNotFoundError
+from femtoolkit.analysis import (
+    BoundaryCondition,
+    NodalLoad,
+    RotationDOF,
+    StaticLinearAnalysis,
+    TranslationDOF,
+)
+from femtoolkit.exceptions import EntityNotFoundError, InvalidElementError, ValidationError
 from femtoolkit.materials import Material
-from femtoolkit.mesh import BarElement, Mesh, Node
+from femtoolkit.mesh import BarElement, FrameElement2D, Mesh, Node, TrussElement2D
 from femtoolkit.sections import CrossSection
 
 
@@ -77,3 +83,148 @@ def test_result_element_unknown_id_raises(single_bar_result) -> None:
 
     with pytest.raises(EntityNotFoundError):
         result.element_stress(99)
+
+
+# --- Frame element results (Version 5) ---
+
+YOUNGS_MODULUS = 200e9
+AREA = 0.01
+SECOND_MOMENT_OF_AREA = 8.333e-6
+EXTREME_FIBER_DISTANCE = 0.05
+LENGTH = 2.0
+TIP_LOAD = 1000.0
+
+
+@pytest.fixture
+def cantilever_result():
+    """A single horizontal frame element, fixed at node 1, tip-loaded at node 2."""
+    steel = Material(
+        name="Steel", density=7850.0, youngs_modulus=YOUNGS_MODULUS, poissons_ratio=0.3
+    )
+    section = CrossSection(
+        area=AREA,
+        second_moment_of_area=SECOND_MOMENT_OF_AREA,
+        extreme_fiber_distance=EXTREME_FIBER_DISTANCE,
+    )
+    node_1 = Node(id=1, x=0.0, y=0.0, z=0.0)
+    node_2 = Node(id=2, x=LENGTH, y=0.0, z=0.0)
+
+    mesh = Mesh()
+    mesh.add_node(node_1)
+    mesh.add_node(node_2)
+    mesh.add_element(
+        FrameElement2D(id=1, nodes=(node_1, node_2), material=steel, cross_section=section)
+    )
+
+    analysis = StaticLinearAnalysis(mesh)
+    for dof in (TranslationDOF.X, TranslationDOF.Y, RotationDOF.RZ):
+        analysis.add_boundary_condition(BoundaryCondition(node_id=1, dof=dof, value=0.0))
+    analysis.add_load(NodalLoad(node_id=2, dof=TranslationDOF.Y, value=-TIP_LOAD))
+
+    return analysis.solve()
+
+
+def test_node_displacement_returns_three_components_for_frame_analysis(cantilever_result) -> None:
+    ux, uy, rz = cantilever_result.node_displacement(2)
+
+    assert_allclose(ux, 0.0, atol=1e-12)
+    assert uy < 0.0  # tip deflects downward under the downward load
+    assert rz < 0.0  # tip rotates under the tip load
+
+
+def test_node_reaction_returns_three_components_for_frame_analysis(cantilever_result) -> None:
+    rx, ry, mz = cantilever_result.node_reaction(1)
+
+    assert_allclose(rx, 0.0, atol=1e-6)
+    assert_allclose(ry, TIP_LOAD, rtol=1e-9)
+    assert_allclose(mz, TIP_LOAD * LENGTH, rtol=1e-9)
+
+
+def test_node_displacement_still_returns_two_components_for_truss_analysis() -> None:
+    """Version 4 behavior must be unchanged: a 2D truss analysis still returns (ux, uy)."""
+    steel = Material(
+        name="Steel", density=7850.0, youngs_modulus=YOUNGS_MODULUS, poissons_ratio=0.3
+    )
+    section = CrossSection(area=AREA)
+    node_1 = Node(id=1, x=0.0, y=0.0, z=0.0)
+    node_2 = Node(id=2, x=2.0, y=0.0, z=0.0)
+
+    mesh = Mesh()
+    mesh.add_node(node_1)
+    mesh.add_node(node_2)
+    mesh.add_element(
+        TrussElement2D(id=1, nodes=(node_1, node_2), material=steel, cross_section=section)
+    )
+
+    analysis = StaticLinearAnalysis(mesh)
+    analysis.add_boundary_condition(BoundaryCondition(node_id=1, dof=TranslationDOF.X, value=0.0))
+    analysis.add_boundary_condition(BoundaryCondition(node_id=1, dof=TranslationDOF.Y, value=0.0))
+    analysis.add_boundary_condition(BoundaryCondition(node_id=2, dof=TranslationDOF.Y, value=0.0))
+    analysis.add_load(NodalLoad(node_id=2, dof=TranslationDOF.X, value=1000.0))
+    result = analysis.solve()
+
+    displacement = result.node_displacement(2)
+    assert len(displacement) == 2
+
+
+def test_element_end_forces_cantilever(cantilever_result) -> None:
+    forces = cantilever_result.element_end_forces(1)
+
+    assert_allclose(forces.node_1.shear_force, TIP_LOAD, rtol=1e-9)
+    assert_allclose(forces.node_1.bending_moment, TIP_LOAD * LENGTH, rtol=1e-9)
+    assert_allclose(forces.node_2.shear_force, -TIP_LOAD, rtol=1e-9)
+    assert_allclose(forces.node_2.bending_moment, 0.0, atol=1e-6)
+
+
+def test_element_shear_force_default_end(cantilever_result) -> None:
+    assert_allclose(cantilever_result.element_shear_force(1), TIP_LOAD, rtol=1e-9)
+    assert_allclose(cantilever_result.element_shear_force(1, end="node_2"), -TIP_LOAD, rtol=1e-9)
+
+
+def test_element_bending_moment_default_end(cantilever_result) -> None:
+    assert_allclose(cantilever_result.element_bending_moment(1), TIP_LOAD * LENGTH, rtol=1e-9)
+    assert_allclose(cantilever_result.element_bending_moment(1, end="node_2"), 0.0, atol=1e-6)
+
+
+def test_element_bending_stress(cantilever_result) -> None:
+    expected = (TIP_LOAD * LENGTH) * EXTREME_FIBER_DISTANCE / SECOND_MOMENT_OF_AREA
+    assert_allclose(cantilever_result.element_bending_stress(1), expected, rtol=1e-9)
+
+
+def test_element_bending_stress_without_extreme_fiber_distance_raises() -> None:
+    steel = Material(
+        name="Steel", density=7850.0, youngs_modulus=YOUNGS_MODULUS, poissons_ratio=0.3
+    )
+    section = CrossSection(area=AREA, second_moment_of_area=SECOND_MOMENT_OF_AREA)
+    node_1 = Node(id=1, x=0.0, y=0.0, z=0.0)
+    node_2 = Node(id=2, x=LENGTH, y=0.0, z=0.0)
+
+    mesh = Mesh()
+    mesh.add_node(node_1)
+    mesh.add_node(node_2)
+    mesh.add_element(
+        FrameElement2D(id=1, nodes=(node_1, node_2), material=steel, cross_section=section)
+    )
+
+    analysis = StaticLinearAnalysis(mesh)
+    for dof in (TranslationDOF.X, TranslationDOF.Y, RotationDOF.RZ):
+        analysis.add_boundary_condition(BoundaryCondition(node_id=1, dof=dof, value=0.0))
+    analysis.add_load(NodalLoad(node_id=2, dof=TranslationDOF.Y, value=-TIP_LOAD))
+    result = analysis.solve()
+
+    with pytest.raises(ValidationError):
+        result.element_bending_stress(1)
+
+
+def test_element_end_forces_rejects_non_frame_element(single_bar_result) -> None:
+    result, _, _ = single_bar_result
+
+    with pytest.raises(InvalidElementError):
+        result.element_end_forces(1)
+
+
+def test_element_shear_force_rejects_non_frame_element(single_bar_result) -> None:
+    result, _, _ = single_bar_result
+
+    with pytest.raises(InvalidElementError):
+        result.element_shear_force(1)

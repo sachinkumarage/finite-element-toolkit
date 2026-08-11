@@ -3,7 +3,7 @@
 import pytest
 from numpy.testing import assert_allclose
 
-from femtoolkit.analysis import BoundaryCondition, NodalLoad, StaticLinearAnalysis
+from femtoolkit.analysis import BoundaryCondition, NodalLoad, StaticLinearAnalysis, TranslationDOF
 from femtoolkit.exceptions import (
     InsufficientConstraintsError,
     InvalidAnalysisError,
@@ -11,7 +11,7 @@ from femtoolkit.exceptions import (
     SingularSystemError,
 )
 from femtoolkit.materials import Material
-from femtoolkit.mesh import BarElement, Element, Mesh, Node
+from femtoolkit.mesh import BarElement, Element, FrameElement2D, Mesh, Node
 from femtoolkit.sections import CrossSection
 
 
@@ -97,6 +97,32 @@ def test_solve_rejects_mesh_with_nodes_but_no_elements() -> None:
     analysis.add_boundary_condition(BoundaryCondition(node_id=1, dof=0, value=0.0))
 
     with pytest.raises(InvalidAnalysisError):
+        analysis.solve()
+
+
+def test_solve_detects_singular_frame_system(steel: Material) -> None:
+    """A frame element with only its axial DOF constrained is a rigid-body
+    mechanism: it remains free to translate in Y and rotate, so the
+    reduced global stiffness matrix is singular. This is the Version 5
+    structural-instability check (see the analysis module docstring):
+    :class:`StaticLinearAnalysis` detects it the same way for any element
+    type, without a frame-specific code path.
+    """
+    section = CrossSection(area=0.01, second_moment_of_area=8.333e-6)
+    node_1 = Node(id=1, x=0.0, y=0.0, z=0.0)
+    node_2 = Node(id=2, x=2.0, y=0.0, z=0.0)
+    mesh = Mesh()
+    mesh.add_node(node_1)
+    mesh.add_node(node_2)
+    mesh.add_element(
+        FrameElement2D(id=1, nodes=(node_1, node_2), material=steel, cross_section=section)
+    )
+
+    analysis = StaticLinearAnalysis(mesh)
+    analysis.add_boundary_condition(BoundaryCondition(node_id=1, dof=TranslationDOF.X, value=0.0))
+    analysis.add_load(NodalLoad(node_id=2, dof=TranslationDOF.Y, value=1000.0))
+
+    with pytest.raises(SingularSystemError):
         analysis.solve()
 
 

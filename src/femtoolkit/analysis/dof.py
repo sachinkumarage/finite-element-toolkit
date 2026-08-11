@@ -2,17 +2,29 @@
 
 A **degree of freedom** is an independent unknown associated with a node.
 For a 1D axial problem a node has a single translational DOF (its axial
-displacement). Future versions may activate additional translational
-directions (2D: X, Y; 3D: X, Y, Z); rotational DOFs are out of scope for
-Version 2.
+displacement). A 2D truss node activates two translational DOFs (X, Y).
+Version 5 introduces a third DOF for 2D frame nodes: the rotation about
+the global Z axis, ``rz``, needed alongside ``ux`` and ``uy`` to resist
+bending moment.
 
 This module defines:
 
 * :class:`TranslationDOF` — the translational directions a DOF can
-  represent.
+  represent (``X``, ``Y``, ``Z``).
+* :class:`RotationDOF` — the rotational direction a DOF can represent
+  (``RZ``, rotation about the global Z axis).
 * :class:`DOFMap` — a mapping from ``(node_id, dof)`` pairs to a single
   global DOF index, used to assemble element contributions into a global
   system of equations.
+
+``DOFMap`` numbers DOF slots purely by position (0, 1, 2, ...) and has no
+opinion on what a slot means; that meaning is defined entirely by the
+owning element. A 2D frame element (``dofs_per_node=3``) uses slot 2 for
+``RotationDOF.RZ``, the same numeric value as ``TranslationDOF.Z``. This
+is safe because a single analysis only ever contains elements that share
+one ``dofs_per_node`` value (see :class:`~femtoolkit.analysis.static_linear.StaticLinearAnalysis`),
+so slot 2 never represents both a Z-translation and a Z-rotation within
+the same analysis.
 """
 
 from __future__ import annotations
@@ -26,9 +38,10 @@ from femtoolkit.exceptions import EntityNotFoundError, ValidationError
 class TranslationDOF(IntEnum):
     """A translational degree-of-freedom direction at a node.
 
-    Version 2 only activates the ``X`` direction, which represents axial
-    displacement for the 1D bar element. ``Y`` and ``Z`` are defined so
-    future versions can extend the DOF model without renumbering.
+    ``X`` represents axial displacement for the 1D bar element and the
+    global X displacement for 2D truss and frame elements. ``Y`` is the
+    global Y displacement, activated by 2D truss and frame elements.
+    ``Z`` is reserved for a future 3D translational direction.
     """
 
     X = 0
@@ -36,19 +49,32 @@ class TranslationDOF(IntEnum):
     Z = 2
 
 
+class RotationDOF(IntEnum):
+    """A rotational degree-of-freedom direction at a node.
+
+    ``RZ`` is the rotation about the global Z axis, activated by 2D frame
+    elements (:class:`~femtoolkit.mesh.frame_element.FrameElement2D`)
+    alongside ``TranslationDOF.X`` and ``TranslationDOF.Y``. See the
+    module docstring for why sharing numeric value 2 with
+    ``TranslationDOF.Z`` is safe.
+    """
+
+    RZ = 2
+
+
 def validate_dof(dof: int) -> int:
-    """Validate that ``dof`` identifies a known translational direction.
+    """Validate that ``dof`` identifies a known DOF direction.
 
     Args:
         dof: Candidate DOF index, expected to match one of the
-            :class:`TranslationDOF` values (0, 1, or 2).
+            :class:`TranslationDOF` values (0, 1, or 2) -- which also
+            covers :class:`RotationDOF.RZ` (2).
 
     Returns:
         The validated DOF index, as a plain ``int``.
 
     Raises:
-        ValidationError: If ``dof`` is not a valid :class:`TranslationDOF`
-            value.
+        ValidationError: If ``dof`` is not a valid DOF direction.
     """
     if isinstance(dof, bool) or not isinstance(dof, int):
         raise ValidationError(f"DOF must be an integer, got {dof!r}.")

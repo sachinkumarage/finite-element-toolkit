@@ -4,20 +4,24 @@ This module defines :class:`AnalysisResult`, a read-only view over the
 outcome of a :class:`~femtoolkit.analysis.static_linear.StaticLinearAnalysis`
 solve. It exposes nodal displacements, reaction forces, and per-element
 strain, stress, and axial force, computed on demand from the raw solved
-displacement vector. The result object performs no matrix assembly or
-solving of its own, and works with any element satisfying the
-:class:`~femtoolkit.analysis.element.StructuralElement` protocol.
+displacement vector. For frame elements, it additionally exposes per-end
+shear force, bending moment, and extreme-fiber bending stress. The result
+object performs no matrix assembly or solving of its own, and works with
+any element satisfying the :class:`~femtoolkit.analysis.element.StructuralElement`
+protocol (or, for frame-specific results,
+:class:`~femtoolkit.analysis.element.FrameStructuralElement`).
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Literal
 
 import numpy as np
 
 from femtoolkit.analysis.dof import DOFMap, TranslationDOF
-from femtoolkit.analysis.element import StructuralElement
-from femtoolkit.exceptions import EntityNotFoundError
+from femtoolkit.analysis.element import FrameStructuralElement, StructuralElement
+from femtoolkit.exceptions import EntityNotFoundError, InvalidElementError, ValidationError
 
 
 @dataclass(frozen=True)
@@ -89,43 +93,47 @@ class AnalysisResult:
         index = self.dof_map.global_index(node_id, dof)
         return float(self.reactions[index])
 
-    def node_displacement(self, node_id: int) -> tuple[float, float]:
-        """Return the ``(ux, uy)`` displacement of a node in a 2D analysis.
+    def node_displacement(self, node_id: int) -> tuple[float, ...]:
+        """Return every active displacement component of a node.
+
+        The number of components matches this analysis's
+        ``dofs_per_node``: ``(ux, uy)`` for a 2D truss analysis, or
+        ``(ux, uy, rz)`` for a 2D frame analysis.
 
         Args:
             node_id: ID of the node to query.
 
         Returns:
-            A ``(ux, uy)`` tuple, in meters.
+            A tuple of length ``dof_map.dofs_per_node``, in meters (and,
+            for the trailing ``rz`` component of a frame analysis,
+            radians).
 
         Raises:
             EntityNotFoundError: If ``node_id`` was not part of the analysis.
-            ValidationError: If this analysis does not activate both X
-                and Y DOFs (i.e. it is not a 2D analysis).
         """
-        return (
-            self.displacement(node_id, TranslationDOF.X),
-            self.displacement(node_id, TranslationDOF.Y),
+        return tuple(
+            self.displacement(node_id, dof) for dof in range(self.dof_map.dofs_per_node)
         )
 
-    def node_reaction(self, node_id: int) -> tuple[float, float]:
-        """Return the ``(Rx, Ry)`` reaction of a node in a 2D analysis.
+    def node_reaction(self, node_id: int) -> tuple[float, ...]:
+        """Return every active reaction component of a node.
+
+        The number of components matches this analysis's
+        ``dofs_per_node``: ``(Rx, Ry)`` for a 2D truss analysis, or
+        ``(Rx, Ry, Mz)`` for a 2D frame analysis.
 
         Args:
             node_id: ID of the node to query.
 
         Returns:
-            A ``(Rx, Ry)`` tuple, in newtons.
+            A tuple of length ``dof_map.dofs_per_node``, in newtons (and,
+            for the trailing ``Mz`` component of a frame analysis,
+            newton-meters).
 
         Raises:
             EntityNotFoundError: If ``node_id`` was not part of the analysis.
-            ValidationError: If this analysis does not activate both X
-                and Y DOFs (i.e. it is not a 2D analysis).
         """
-        return (
-            self.reaction(node_id, TranslationDOF.X),
-            self.reaction(node_id, TranslationDOF.Y),
-        )
+        return tuple(self.reaction(node_id, dof) for dof in range(self.dof_map.dofs_per_node))
 
     def element_strain(self, element_id: int) -> float:
         """Return the axial strain of an element.
@@ -173,11 +181,112 @@ class AnalysisResult:
         element = self._get_element(element_id)
         return element.axial_force_from_dofs(self._element_dof_values(element))
 
+    def element_end_forces(self, element_id: int):
+        """Return the axial force, shear force, and bending moment at both ends of a frame element.
+
+        Args:
+            element_id: ID of the frame element to query.
+
+        Returns:
+            A :class:`~femtoolkit.results.element_results.FrameElementForces`
+            with the forces at ``node_1`` and ``node_2``.
+
+        Raises:
+            EntityNotFoundError: If ``element_id`` was not part of the analysis.
+            InvalidElementError: If the element does not carry shear force
+                or bending moment (e.g. a bar or truss element).
+        """
+        element = self._get_frame_element(element_id)
+        return element.end_forces_from_dofs(self._element_dof_values(element))
+
+    def element_shear_force(
+        self, element_id: int, end: Literal["node_1", "node_2"] = "node_1"
+    ) -> float:
+        """Return the shear force at one end of a frame element.
+
+        Args:
+            element_id: ID of the frame element to query.
+            end: Which end to report, ``"node_1"`` (default) or ``"node_2"``.
+
+        Returns:
+            Shear force in newtons. See the sign convention documented in
+            :mod:`femtoolkit.mesh.frame_element`.
+
+        Raises:
+            EntityNotFoundError: If ``element_id`` was not part of the analysis.
+            InvalidElementError: If the element does not carry shear force.
+        """
+        end_forces = self.element_end_forces(element_id)
+        return getattr(end_forces, end).shear_force
+
+    def element_bending_moment(
+        self, element_id: int, end: Literal["node_1", "node_2"] = "node_1"
+    ) -> float:
+        """Return the bending moment at one end of a frame element.
+
+        Args:
+            element_id: ID of the frame element to query.
+            end: Which end to report, ``"node_1"`` (default) or ``"node_2"``.
+
+        Returns:
+            Bending moment in newton-meters. See the sign convention
+            documented in :mod:`femtoolkit.mesh.frame_element`.
+
+        Raises:
+            EntityNotFoundError: If ``element_id`` was not part of the analysis.
+            InvalidElementError: If the element does not carry bending moment.
+        """
+        end_forces = self.element_end_forces(element_id)
+        return getattr(end_forces, end).bending_moment
+
+    def element_bending_stress(
+        self, element_id: int, end: Literal["node_1", "node_2"] = "node_1"
+    ) -> float:
+        """Return the extreme-fiber bending stress at one end of a frame element.
+
+        Computed as ``sigma = M * c / I``, where ``M`` is the bending
+        moment at the requested end, ``c`` is
+        ``cross_section.extreme_fiber_distance``, and ``I`` is
+        ``cross_section.second_moment_of_area``.
+
+        Args:
+            element_id: ID of the frame element to query.
+            end: Which end to report, ``"node_1"`` (default) or ``"node_2"``.
+
+        Returns:
+            Bending stress in pascals.
+
+        Raises:
+            EntityNotFoundError: If ``element_id`` was not part of the analysis.
+            InvalidElementError: If the element does not carry bending moment.
+            ValidationError: If the element's cross-section does not
+                specify ``extreme_fiber_distance``.
+        """
+        element = self._get_frame_element(element_id)
+        extreme_fiber_distance = getattr(element.cross_section, "extreme_fiber_distance", None)
+        if extreme_fiber_distance is None:
+            raise ValidationError(
+                f"Element {element_id}'s cross_section has no extreme_fiber_distance; "
+                "bending stress cannot be computed."
+            )
+
+        bending_moment = self.element_bending_moment(element_id, end=end)
+        return bending_moment * extreme_fiber_distance / element.cross_section.second_moment_of_area
+
     def _get_element(self, element_id: int) -> StructuralElement:
         for element in self.elements:
             if element.id == element_id:
                 return element
         raise EntityNotFoundError(f"No element with id {element_id} found in this result.")
+
+    def _get_frame_element(self, element_id: int) -> FrameStructuralElement:
+        element = self._get_element(element_id)
+        if not isinstance(element, FrameStructuralElement):
+            raise InvalidElementError(
+                f"Element {element_id} ({type(element).__name__}) does not carry shear "
+                "force or bending moment; only frame elements do."
+            )
+        return element
 
     def _element_dof_values(self, element: StructuralElement) -> list[float]:
         """Displacement values for an element's DOFs, ordered per ``dof_keys()``."""

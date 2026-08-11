@@ -2,7 +2,7 @@
 
 import pytest
 
-from femtoolkit.analysis.dof import DOFMap, TranslationDOF, validate_dof
+from femtoolkit.analysis.dof import DOFMap, RotationDOF, TranslationDOF, validate_dof
 from femtoolkit.exceptions import EntityNotFoundError, ValidationError
 
 
@@ -10,6 +10,15 @@ def test_translation_dof_values() -> None:
     assert TranslationDOF.X == 0
     assert TranslationDOF.Y == 1
     assert TranslationDOF.Z == 2
+
+
+def test_rotation_dof_value() -> None:
+    assert RotationDOF.RZ == 2
+
+
+@pytest.mark.parametrize("dof", [RotationDOF.RZ])
+def test_validate_dof_accepts_rotation_dof(dof) -> None:
+    assert validate_dof(dof) == 2
 
 
 @pytest.mark.parametrize("dof", [TranslationDOF.X, TranslationDOF.Y, TranslationDOF.Z, 0, 1, 2])
@@ -40,6 +49,19 @@ def test_dof_map_global_index_multiple_dofs_per_node() -> None:
     assert dof_map.global_index(node_id=20, dof=TranslationDOF.X) == 2
     assert dof_map.global_index(node_id=20, dof=TranslationDOF.Y) == 3
     assert dof_map.total_dofs == 4
+
+
+def test_dof_map_global_index_three_dofs_per_node() -> None:
+    """A 2D frame node has [ux, uy, rz] -- three DOFs per node."""
+    dof_map = DOFMap(node_ids=[1, 2, 3], dofs_per_node=3)
+
+    assert dof_map.global_index(node_id=1, dof=TranslationDOF.X) == 0
+    assert dof_map.global_index(node_id=1, dof=TranslationDOF.Y) == 1
+    assert dof_map.global_index(node_id=1, dof=RotationDOF.RZ) == 2
+    assert dof_map.global_index(node_id=2, dof=TranslationDOF.X) == 3
+    assert dof_map.global_index(node_id=2, dof=RotationDOF.RZ) == 5
+    assert dof_map.global_index(node_id=3, dof=RotationDOF.RZ) == 8
+    assert dof_map.total_dofs == 9
 
 
 def test_dof_map_rejects_unknown_node() -> None:

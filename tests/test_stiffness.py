@@ -1,4 +1,4 @@
-"""Tests for the 1D bar and 2D truss element stiffness matrices."""
+"""Tests for the 1D bar, 2D truss, and 2D frame element stiffness matrices."""
 
 import math
 
@@ -7,7 +7,11 @@ import pytest
 from numpy.testing import assert_allclose
 
 from femtoolkit.analysis import bar_element_stiffness
-from femtoolkit.analysis.stiffness import truss_element_stiffness_2d
+from femtoolkit.analysis.stiffness import (
+    frame_element_stiffness_2d,
+    frame_element_stiffness_local,
+    truss_element_stiffness_2d,
+)
 from femtoolkit.exceptions import ValidationError
 
 
@@ -155,4 +159,184 @@ def test_truss_stiffness_2d_invalid_length_raises(length: float) -> None:
     with pytest.raises(ValidationError):
         truss_element_stiffness_2d(
             youngs_modulus=200e9, area=0.01, length=length, cos_theta=1.0, sin_theta=0.0
+        )
+
+
+# --- 2D frame element (Version 5) ---
+
+YOUNGS_MODULUS = 200e9
+AREA = 0.01
+SECOND_MOMENT_OF_AREA = 8.333e-6
+LENGTH = 2.0
+
+
+def test_frame_local_stiffness_shape_and_symmetry() -> None:
+    stiffness = frame_element_stiffness_local(
+        youngs_modulus=YOUNGS_MODULUS,
+        area=AREA,
+        second_moment_of_area=SECOND_MOMENT_OF_AREA,
+        length=LENGTH,
+    )
+
+    assert stiffness.shape == (6, 6)
+    assert_allclose(stiffness, stiffness.T)
+
+
+def test_frame_local_stiffness_axial_terms_match_bar() -> None:
+    """Rows/columns 0 and 3 (axial DOFs) must match the 1D bar formula exactly."""
+    stiffness = frame_element_stiffness_local(
+        youngs_modulus=YOUNGS_MODULUS,
+        area=AREA,
+        second_moment_of_area=SECOND_MOMENT_OF_AREA,
+        length=LENGTH,
+    )
+    bar_stiffness = bar_element_stiffness(
+        youngs_modulus=YOUNGS_MODULUS, area=AREA, length=LENGTH
+    )
+
+    axial_indices = [0, 3]
+    assert_allclose(stiffness[np.ix_(axial_indices, axial_indices)], bar_stiffness)
+
+
+def test_frame_local_stiffness_bending_terms() -> None:
+    stiffness = frame_element_stiffness_local(
+        youngs_modulus=YOUNGS_MODULUS,
+        area=AREA,
+        second_moment_of_area=SECOND_MOMENT_OF_AREA,
+        length=LENGTH,
+    )
+    e, i, length = YOUNGS_MODULUS, SECOND_MOMENT_OF_AREA, LENGTH
+
+    assert_allclose(stiffness[1, 1], 12 * e * i / length**3)
+    assert_allclose(stiffness[1, 2], 6 * e * i / length**2)
+    assert_allclose(stiffness[2, 2], 4 * e * i / length)
+    assert_allclose(stiffness[2, 5], 2 * e * i / length)
+    assert_allclose(stiffness[4, 4], 12 * e * i / length**3)
+    assert_allclose(stiffness[1, 4], -12 * e * i / length**3)
+
+
+def test_frame_local_stiffness_axial_bending_uncoupled() -> None:
+    """Axial DOFs (0, 3) and bending DOFs (1, 2, 4, 5) do not interact."""
+    stiffness = frame_element_stiffness_local(
+        youngs_modulus=YOUNGS_MODULUS,
+        area=AREA,
+        second_moment_of_area=SECOND_MOMENT_OF_AREA,
+        length=LENGTH,
+    )
+    axial_indices = [0, 3]
+    bending_indices = [1, 2, 4, 5]
+
+    assert_allclose(stiffness[np.ix_(axial_indices, bending_indices)], 0.0)
+    assert_allclose(stiffness[np.ix_(bending_indices, axial_indices)], 0.0)
+
+
+@pytest.mark.parametrize("youngs_modulus", [0.0, -200e9, float("nan"), float("inf")])
+def test_frame_local_stiffness_invalid_youngs_modulus_raises(youngs_modulus: float) -> None:
+    with pytest.raises(ValidationError):
+        frame_element_stiffness_local(
+            youngs_modulus=youngs_modulus,
+            area=AREA,
+            second_moment_of_area=SECOND_MOMENT_OF_AREA,
+            length=LENGTH,
+        )
+
+
+@pytest.mark.parametrize("second_moment_of_area", [0.0, -8.333e-6, float("nan"), float("inf")])
+def test_frame_local_stiffness_invalid_second_moment_raises(second_moment_of_area: float) -> None:
+    with pytest.raises(ValidationError):
+        frame_element_stiffness_local(
+            youngs_modulus=YOUNGS_MODULUS,
+            area=AREA,
+            second_moment_of_area=second_moment_of_area,
+            length=LENGTH,
+        )
+
+
+def test_frame_global_stiffness_shape_and_symmetry() -> None:
+    stiffness = frame_element_stiffness_2d(
+        youngs_modulus=YOUNGS_MODULUS,
+        area=AREA,
+        second_moment_of_area=SECOND_MOMENT_OF_AREA,
+        length=LENGTH,
+        cos_theta=math.sqrt(2) / 2,
+        sin_theta=math.sqrt(2) / 2,
+    )
+
+    assert stiffness.shape == (6, 6)
+    assert_allclose(stiffness, stiffness.T)
+
+
+def test_frame_global_stiffness_horizontal_matches_local() -> None:
+    """A horizontal frame element (c=1, s=0) has T = identity, so Kg == Kl."""
+    local_stiffness = frame_element_stiffness_local(
+        youngs_modulus=YOUNGS_MODULUS,
+        area=AREA,
+        second_moment_of_area=SECOND_MOMENT_OF_AREA,
+        length=LENGTH,
+    )
+    global_stiffness = frame_element_stiffness_2d(
+        youngs_modulus=YOUNGS_MODULUS,
+        area=AREA,
+        second_moment_of_area=SECOND_MOMENT_OF_AREA,
+        length=LENGTH,
+        cos_theta=1.0,
+        sin_theta=0.0,
+    )
+
+    assert_allclose(global_stiffness, local_stiffness)
+
+
+def test_frame_global_stiffness_vertical_swaps_axial_and_bending_rows() -> None:
+    """A vertical frame element (c=0, s=1) has its axial stiffness acting
+    on global uy (not ux), since the local axial axis now points along Y.
+    """
+    global_stiffness = frame_element_stiffness_2d(
+        youngs_modulus=YOUNGS_MODULUS,
+        area=AREA,
+        second_moment_of_area=SECOND_MOMENT_OF_AREA,
+        length=LENGTH,
+        cos_theta=0.0,
+        sin_theta=1.0,
+    )
+    expected_axial = YOUNGS_MODULUS * AREA / LENGTH
+
+    assert_allclose(global_stiffness[1, 1], expected_axial)  # uy1-uy1: axial
+    assert_allclose(global_stiffness[0, 0], 12 * YOUNGS_MODULUS * SECOND_MOMENT_OF_AREA / LENGTH**3)
+
+
+def test_frame_global_stiffness_matches_transformation_formula() -> None:
+    """Kg must equal T^T * Kl * T for an arbitrary orientation."""
+    from femtoolkit.analysis.transformation import frame_transformation_matrix_2d
+
+    cos_theta, sin_theta = 0.6, 0.8
+    local_stiffness = frame_element_stiffness_local(
+        youngs_modulus=YOUNGS_MODULUS,
+        area=AREA,
+        second_moment_of_area=SECOND_MOMENT_OF_AREA,
+        length=LENGTH,
+    )
+    transformation = frame_transformation_matrix_2d(cos_theta, sin_theta)
+    expected = transformation.T @ local_stiffness @ transformation
+
+    global_stiffness = frame_element_stiffness_2d(
+        youngs_modulus=YOUNGS_MODULUS,
+        area=AREA,
+        second_moment_of_area=SECOND_MOMENT_OF_AREA,
+        length=LENGTH,
+        cos_theta=cos_theta,
+        sin_theta=sin_theta,
+    )
+    assert_allclose(global_stiffness, expected)
+
+
+@pytest.mark.parametrize("length", [0.0, -2.0, float("nan"), float("inf")])
+def test_frame_global_stiffness_invalid_length_raises(length: float) -> None:
+    with pytest.raises(ValidationError):
+        frame_element_stiffness_2d(
+            youngs_modulus=YOUNGS_MODULUS,
+            area=AREA,
+            second_moment_of_area=SECOND_MOMENT_OF_AREA,
+            length=length,
+            cos_theta=1.0,
+            sin_theta=0.0,
         )

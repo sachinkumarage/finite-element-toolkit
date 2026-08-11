@@ -2,7 +2,7 @@
 
 An open-source Python toolkit for developing finite element analysis (FEA) capabilities, built incrementally as a series of versioned milestones.
 
-**This is the Version 4 release.** Version 1 established the project's architecture and core domain model. Version 2 added the basic mathematical foundation for FEA. Version 3 turned that into a validated **1D structural analysis** capability (a bar element, `StaticLinearAnalysis`, and results). Version 4 extends the same analysis workflow to **2D truss structures**: two translational DOFs per node, a `TrussElement2D` transformed from local to global coordinates via its direction cosines, and X/Y loads, constraints, displacements, reactions, and member forces. It does **not** yet contain beam, frame, plate, shell, 2D continuum, or 3D elements, or nonlinear/dynamic analysis, or visualization.
+**This is the Version 5 release.** Version 1 established the project's architecture and core domain model. Version 2 added the basic mathematical foundation for FEA. Version 3 turned that into a validated **1D structural analysis** capability (a bar element, `StaticLinearAnalysis`, and results). Version 4 extended the same analysis workflow to **2D truss structures**: two translational DOFs per node, a `TrussElement2D` transformed from local to global coordinates via its direction cosines, and X/Y loads, constraints, displacements, reactions, and member forces. Version 5 adds **2D Euler-Bernoulli beam and frame analysis**: a rotational DOF per node, a `FrameElement2D` that resists axial force, shear force, and bending moment, and per-element shear/moment/bending-stress results. It does **not** yet contain 3D beams, Timoshenko beams, plate, shell, 2D continuum, or 3D elements, or nonlinear/dynamic analysis, or visualization.
 
 ## Current Features
 
@@ -41,6 +41,16 @@ An open-source Python toolkit for developing finite element analysis (FEA) capab
 - **Reusable numerical infrastructure** — assembly, the linear system, and the solver were generalized in Version 4 to support any number of DOFs per node, so `BarElement` and `TrussElement2D` share the exact same solve path
 - **2D results** — `result.node_displacement(node_id)` and `result.node_reaction(node_id)` return `(x, y)` tuples; `displacement()`/`reaction()` gained an optional `dof` argument
 - **Tests** — a pytest suite covering all four versions, including a validation suite (`tests/validation/`) with a horizontal-truss backward check against the Version 3 bar formula, a triangular truss solved independently by the method of joints, a symmetric-truss consistency check, and a multi-material truss
+
+**Version 5 — 2D beam and frame analysis**
+
+- **Rotational DOF** — `RotationDOF.RZ`, activated alongside `TranslationDOF.X`/`Y` by frame elements (`dofs_per_node=3`); `DOFMap` already supported three DOFs per node since Version 2
+- **Cross-section bending properties** — `CrossSection` gained optional `second_moment_of_area` (required for a frame element's bending stiffness) and `extreme_fiber_distance` (optional, only used by bending-stress post-processing)
+- **2D frame element** — `FrameElement2D`, a two-node, three-DOF-per-node element combining a bar element's axial stiffness (`EA/L`) with Euler-Bernoulli bending stiffness (`EI`), transformed from local to global coordinates via a 6x6 transformation matrix
+- **Frame stiffness math** — `frame_element_stiffness_local`, `frame_transformation_matrix_2d`, and `frame_element_stiffness_2d` (`Kg = Tᵀ·Kl·T`) in `femtoolkit.analysis`
+- **Frame results** — `element_end_forces`, `element_shear_force`, `element_bending_moment`, and `element_bending_stress` on `AnalysisResult`, gated to elements satisfying the new `FrameStructuralElement` protocol; `node_displacement`/`node_reaction` generalized to return one component per active DOF (`(ux, uy, rz)` for a frame analysis, unchanged `(ux, uy)` for a truss analysis)
+- **Backward compatible** — `BarElement` and `TrussElement2D` are untouched; assembly, the linear system, and the solver required no frame-specific changes at all, since they were already DOF-count-agnostic since Version 4
+- **Engineering validation** — five validation cases plus a portal frame in `tests/validation/`, each checked against a classical Euler-Bernoulli analytical solution or an independently derived equilibrium/consistency invariant (see [Version 5](#version-5) below)
 
 ## Installation
 
@@ -171,6 +181,37 @@ result = analysis.solve()
 print(result.node_displacement(2))  # (1e-06, 0.0) m -- matches the 1D bar solution
 print(result.node_reaction(1))  # (-1000.0, 0.0) N
 print(result.element_axial_force(1))  # 1000.0 N
+```
+
+Solving a cantilever beam with Version 5 (see [Version 5](#version-5) below for the theory):
+
+```python
+from femtoolkit.analysis import BoundaryCondition, NodalLoad, RotationDOF, StaticLinearAnalysis, TranslationDOF
+from femtoolkit.materials import Material
+from femtoolkit.mesh import FrameElement2D, Mesh, Node
+from femtoolkit.sections import CrossSection
+
+steel = Material(name="Steel", density=7850.0, youngs_modulus=200e9, poissons_ratio=0.3)
+section = CrossSection(area=0.01, second_moment_of_area=8.333e-6)
+node_1 = Node(id=1, x=0.0, y=0.0, z=0.0)
+node_2 = Node(id=2, x=2.0, y=0.0, z=0.0)
+beam = FrameElement2D(id=1, nodes=(node_1, node_2), material=steel, cross_section=section)
+
+mesh = Mesh()
+mesh.add_node(node_1)
+mesh.add_node(node_2)
+mesh.add_element(beam)
+
+analysis = StaticLinearAnalysis(mesh)
+for dof in (TranslationDOF.X, TranslationDOF.Y, RotationDOF.RZ):
+    analysis.add_boundary_condition(BoundaryCondition(node_id=1, dof=dof, value=0.0))
+analysis.add_load(NodalLoad(node_id=2, dof=TranslationDOF.Y, value=-1000.0))
+result = analysis.solve()
+
+print(result.node_displacement(2))  # (0.0, -1.600064e-03, -1.200048e-03) -- (ux, uy, rz)
+print(result.node_reaction(1))  # (0.0, 1000.0, 2000.0) -- (Rx, Ry, Mz)
+print(result.element_bending_moment(1))  # 2000.0 N*m, the fixed-end moment
+print(result.element_shear_force(1))  # 1000.0 N, the fixed-end shear
 ```
 
 ## Version 2
@@ -358,19 +399,123 @@ Version 4 adds four validation cases in `tests/validation/`:
 
 Version 4 does not include beam, frame, plate, shell, 2D continuum, or 3D elements, nonlinear or dynamic analysis, thermal loads, automatic mesh generation, or visualization. See the [Roadmap](#roadmap).
 
+## Version 5
+
+Version 5 extends the toolkit from axial-only truss members to **2D Euler-Bernoulli beam and frame elements**: straight two-node members that resist axial force, shear force, *and* bending moment, connected at joints that transmit moment as well as force.
+
+**Engineering assumptions:** linear elastic material behavior, small deformation, small strain, static loading, Euler-Bernoulli beam theory (plane sections remain plane and perpendicular to the neutral axis, so shear deformation is neglected), plane (2D) frame behavior, a constant prismatic cross-section per element, and the same consistent SI unit system as every prior version (rotation and curvature use radians, never degrees).
+
+### Euler-Bernoulli beam theory
+
+A truss element's stiffness is governed entirely by `EA`, its axial rigidity. A frame element adds `EI`, its **flexural rigidity** (`E` = Young's modulus, `I` = second moment of area), which governs how much the member resists bending. The Euler-Bernoulli assumption -- *plane sections remain plane and perpendicular to the neutral axis after deformation* -- is what lets bending stiffness be derived purely from `EI` and length, without a separate shear-stiffness term (that refinement, Timoshenko beam theory, is out of scope for this version).
+
+### Cross-section
+
+`CrossSection` gained two optional properties on top of `area`:
+
+```text
+second_moment_of_area          # I, in m^4 -- required by FrameElement2D (bending stiffness)
+extreme_fiber_distance         # c, in m   -- optional, only used by bending-stress post-processing
+```
+
+`BarElement` and `TrussElement2D` still only need `area`; a `CrossSection` without `second_moment_of_area` set is rejected by `FrameElement2D` at construction time.
+
+### 2D frame degrees of freedom
+
+Every node now has three DOFs when used with a frame element: `ux`, `uy`, and `rz` (rotation about the out-of-plane Z axis, counter-clockwise positive, in radians). `DOFMap` already supported an arbitrary number of DOFs per node since Version 2; Version 5 simply uses `dofs_per_node=3` and activates a new `RotationDOF.RZ` (numeric value 2) alongside `TranslationDOF.X`/`Y`. A frame element therefore has 6 DOFs total: `[ux1, uy1, rz1, ux2, uy2, rz2]`.
+
+### Local frame stiffness matrix
+
+In local coordinates `[u1, v1, theta1, u2, v2, theta2]` (`u` = axial, `v` = transverse, `theta` = rotation), the axial and bending terms are uncoupled -- a frame element is a bar element and a beam element sharing the same two nodes:
+
+```text
+[ EA/L        0             0        -EA/L        0             0      ]
+[ 0       12EI/L³       6EI/L²        0      -12EI/L³       6EI/L²    ]
+[ 0        6EI/L²       4EI/L         0       -6EI/L²       2EI/L     ]
+[-EA/L       0             0         EA/L         0             0      ]
+[ 0      -12EI/L³      -6EI/L²        0       12EI/L³      -6EI/L²    ]
+[ 0        6EI/L²       2EI/L         0       -6EI/L²       4EI/L     ]
+```
+
+`12EI/L³` relates transverse displacement to shear force, `6EI/L²` couples transverse displacement and rotation, and `4EI/L`/`2EI/L` are the direct and cross rotational stiffness terms. Setting `I` aside entirely (e.g. via `axial_indices` slicing) reduces the axial rows/columns to exactly the Version 2 bar stiffness matrix -- verified directly in `tests/test_stiffness.py`.
+
+### Coordinate transformation
+
+The local stiffness matrix is transformed into global `[ux1, uy1, rz1, ux2, uy2, rz2]` coordinates with a 6x6 transformation matrix built from the element's direction cosines `c = (x2-x1)/L`, `s = (y2-y1)/L` (identical to the Version 4 truss orientation):
+
+```text
+[ c   s   0   0   0   0 ]
+[-s   c   0   0   0   0 ]
+[ 0   0   1   0   0   0 ]
+[ 0   0   0   c   s   0 ]
+[ 0   0   0  -s   c   0 ]
+[ 0   0   0   0   0   1 ]
+```
+
+Each node contributes an independent 2x2 in-plane rotation block for `ux`/`uy` plus an identity entry for `rz` (a planar rotation is the same in local and global coordinates). The global stiffness matrix is `Kg = Tᵀ · Kl · T`, verified for horizontal, vertical, 45-degree, and arbitrary orientations in `tests/test_stiffness.py` and `tests/test_transformation.py`.
+
+### Element end forces and sign convention
+
+The local end-force vector is recovered directly from the local stiffness matrix and the local displacement vector:
+
+```text
+f_local = Kl @ u_local             # u_local = T @ u_global
+[N1, V1, M1, N2, V2, M2] = f_local
+```
+
+- **Axial force `N`** — positive is tension (matches `BarElement`/`TrussElement2D`).
+- **Shear force `V`** and **bending moment `M`** — the standard finite-element end-force convention: the forces each node must apply to the element to hold its deformed shape. By construction these satisfy element equilibrium (`N1 = -N2`, `V1 = -V2`, and a moment balance about either end) -- verified in `tests/test_frame_element.py`.
+- **Rotation** — always radians internally; no unit-conversion framework was introduced (a `math.degrees()` call is enough for display, see the example scripts).
+
+`AnalysisResult.element_end_forces(element_id)` returns a `FrameElementForces(node_1, node_2)` with the axial force, shear force, and bending moment at each end; `element_shear_force(element_id, end="node_1")` and `element_bending_moment(element_id, end="node_1")` are single-value convenience wrappers over it.
+
+### Stress utilities
+
+```text
+sigma_axial = N / A                                     # element_stress(element_id)
+sigma_bending = M * extreme_fiber_distance / I           # element_bending_stress(element_id, end=...)
+```
+
+`element_bending_stress` requires `extreme_fiber_distance` to be set on the element's `CrossSection`; Version 5 does not build a full stress field or a combined `sigma_total = N/A ± Mc/I` utility, since the two separate utilities above are sufficient for extreme-fiber checks.
+
+### Reusable numerical infrastructure
+
+No frame-specific changes were needed in assembly, `LinearSystem`, or `solve()` -- they were already DOF-count-agnostic since Version 4. `FrameElement2D` satisfies the same `StructuralElement` protocol as `BarElement` and `TrussElement2D` (plus a new `FrameStructuralElement` protocol adding `end_forces_from_dofs`), so `StaticLinearAnalysis` assembles and solves a mesh of frame elements through the exact same code path, without a single `if isinstance(element, FrameElement2D)` branch anywhere in the solver. `node_displacement()`/`node_reaction()` were generalized to return one component per active DOF (`dof_map.dofs_per_node`), so they still return `(ux, uy)` for a truss analysis and now return `(ux, uy, rz)` for a frame analysis.
+
+### Structural instability
+
+A frame with insufficient boundary conditions (for example, a single member with only its axial DOF constrained, free to translate transversely and rotate as a rigid body) produces a singular reduced stiffness matrix. `StaticLinearAnalysis.solve()` detects this and raises `SingularSystemError` -- the same exception introduced in Version 3 and reused for trusses in Version 4, since the underlying failure (a singular linear system) is identical regardless of element type.
+
+### Engineering validation
+
+Six validation cases in `tests/validation/`, each checked against a classical closed-form solution or an independently derived invariant:
+
+- **Bar regression** — a horizontal frame element under a purely axial load reproduces the Version 3 bar solution `u = FL/(EA)` exactly, and induces zero shear/moment, proving the frame element's axial and bending behavior are correctly uncoupled
+- **Cantilever, tip load** — `delta = PL³/(3EI)`, `theta = PL²/(2EI)`, fixed-end moment `M = PL`, fixed-end shear `V = P`
+- **Cantilever, end moment** — `theta = ML/(EI)`, `delta = ML²/(2EI)`, and the reaction moment exactly balances the applied moment
+- **Simply supported beam** — a two-element beam with a midspan point load: `R = P/2` at each support, `M_max = PL/4` at midspan, `delta_mid = PL³/(48EI)`, zero moment at both simple supports
+- **Two-element beam** — the same cantilever as above, re-meshed into two elements, reproduces the identical tip deflection/rotation and fixed-end forces, validating assembly and DOF continuity between elements
+- **Portal frame** — two columns and a beam under an asymmetric lateral load (statically indeterminate, so validated the way Version 4's symmetric truss is: global force/moment equilibrium and physically sensible sway direction, not a closed-form target)
+
+### Limitations
+
+Version 5 does not include 3D beams, Timoshenko beams, distributed beam loads, plate, shell, 2D continuum, or 3D elements, nonlinear or dynamic analysis, buckling, modal analysis, thermal analysis, contact, automatic mesh generation, or visualization. See the [Roadmap](#roadmap).
+
 ## Project Structure
 
 ```text
 finite-element-toolkit/
 ├── src/femtoolkit/
 │   ├── materials/          # Material data model
-│   ├── mesh/               # Node, Element, BarElement, TrussElement2D, Mesh
+│   ├── mesh/               # Node, Element, BarElement, TrussElement2D,
+│   │                       # FrameElement2D, Mesh
 │   ├── sections/           # CrossSection
-│   ├── analysis/           # DOFs, boundary conditions, loads, stiffness
+│   ├── analysis/           # DOFs (incl. RotationDOF), boundary conditions,
+│   │                       # loads, stiffness matrix, transformation
 │   │                       # matrix, assembly, linear system, the
-│   │                       # StructuralElement protocol, and the
-│   │                       # StaticLinearAnalysis workflow
-│   ├── results/            # AnalysisResult
+│   │                       # StructuralElement/FrameStructuralElement
+│   │                       # protocols, and the StaticLinearAnalysis workflow
+│   ├── results/            # AnalysisResult, FrameEndForces, FrameElementForces
 │   ├── units/               # SI unit constants
 │   ├── exceptions/          # Custom exception types
 │   ├── config.py             # Package metadata and defaults
@@ -409,14 +554,16 @@ python examples/basic_1d_bar_analysis.py      # Version 3: full single-bar analy
 python examples/two_element_bar_analysis.py   # Version 3: two-element, mixed-material bar chain
 python examples/basic_2d_truss_analysis.py    # Version 4: triangular 2D truss analysis
 python examples/multi_material_truss.py       # Version 4: multi-material, multi-orientation truss
+python examples/cantilever_beam.py            # Version 5: cantilever beam under a tip load
+python examples/cantilever_end_moment.py      # Version 5: cantilever beam under a pure end moment
+python examples/portal_frame.py               # Version 5: two-column, one-beam portal frame
 ```
 
 ## Roadmap
 
 Future versions will build a more complete FEA solver on top of this foundation. None of the following is implemented yet:
 
-- **Version 5** — Beam/frame analysis (bending, rotational DOFs, moment, shear, deflection)
-- **Version 6** — 2D continuum elements (plane stress/strain)
+- **Version 6** — 2D continuum elements (plane stress/strain: triangular and quadrilateral elements, shape functions, numerical integration, stress/strain recovery)
 - **Version 7** — Advanced mesh and visualization
 - **Later** — 3D elements, GUI, reporting, and more
 
