@@ -2,14 +2,26 @@
 
 This module defines :class:`AnalysisResult`, a read-only view over the
 outcome of a :class:`~femtoolkit.analysis.static_linear.StaticLinearAnalysis`
-solve. It exposes nodal displacements, reaction forces, and per-element
-strain, stress, and axial force, computed on demand from the raw solved
-displacement vector. For frame elements, it additionally exposes per-end
-shear force, bending moment, and extreme-fiber bending stress. The result
-object performs no matrix assembly or solving of its own, and works with
-any element satisfying the :class:`~femtoolkit.analysis.element.StructuralElement`
-protocol (or, for frame-specific results,
-:class:`~femtoolkit.analysis.element.FrameStructuralElement`).
+solve. It exposes nodal displacements and reaction forces generically for
+any element type, plus per-element post-processing that depends on what
+kind of element is being queried:
+
+* **Structural members** (bar, truss, frame) report scalar axial strain,
+  stress, and force via ``element_strain``/``element_stress``/``element_axial_force``.
+  Frame elements additionally report per-end shear force, bending moment,
+  and extreme-fiber bending stress.
+* **Continuum elements** (CST) report the same ``element_strain``/``element_stress``
+  methods, but as a 3-component vector (``[x, y, xy]``) rather than a
+  scalar, plus ``element_von_mises`` and ``element_principal_stresses``.
+
+The result object performs no matrix assembly or solving of its own, and
+works with any element satisfying the
+:class:`~femtoolkit.analysis.element.AssemblableElement` protocol for
+displacement/reaction queries, narrowing to
+:class:`~femtoolkit.analysis.element.StructuralElement`,
+:class:`~femtoolkit.analysis.element.FrameStructuralElement`, or
+:class:`~femtoolkit.analysis.element.ContinuumElement` for the
+post-processing methods that only some element types support.
 """
 
 from __future__ import annotations
@@ -20,7 +32,12 @@ from typing import Literal
 import numpy as np
 
 from femtoolkit.analysis.dof import DOFMap, TranslationDOF
-from femtoolkit.analysis.element import FrameStructuralElement, StructuralElement
+from femtoolkit.analysis.element import (
+    AssemblableElement,
+    ContinuumElement,
+    FrameStructuralElement,
+    StructuralElement,
+)
 from femtoolkit.exceptions import EntityNotFoundError, InvalidElementError, ValidationError
 
 
@@ -36,7 +53,7 @@ class AnalysisResult:
         dof_map: DOF map used for the analysis, defining the global DOF
             numbering that ``displacements`` and ``reactions`` are
             expressed in.
-        elements: The structural elements that were analyzed.
+        elements: The elements that were analyzed.
         displacements: Global displacement vector ``{u}``, in global DOF
             order.
         reactions: Global reaction force vector ``R = [K]{u} - {F}``, in
@@ -45,7 +62,7 @@ class AnalysisResult:
     """
 
     dof_map: DOFMap
-    elements: tuple[StructuralElement, ...]
+    elements: tuple[AssemblableElement, ...]
     displacements: np.ndarray
     reactions: np.ndarray
 
@@ -135,34 +152,53 @@ class AnalysisResult:
         """
         return tuple(self.reaction(node_id, dof) for dof in range(self.dof_map.dofs_per_node))
 
-    def element_strain(self, element_id: int) -> float:
-        """Return the axial strain of an element.
+    def element_strain(self, element_id: int) -> float | np.ndarray:
+        """Return the strain of an element.
+
+        For a **structural member** (bar, truss, frame), this is the
+        scalar axial strain (positive is tension). For a **continuum
+        element** (CST), this is the constant strain vector
+        ``[epsilon_x, epsilon_y, gamma_xy]`` (see
+        :mod:`femtoolkit.continuum.strain`) -- a single method name
+        reused across element types, since both ultimately mean "the
+        deformation this element is experiencing."
 
         Args:
             element_id: ID of the element to query.
 
         Returns:
-            Strain (dimensionless). Positive is tension.
+            A scalar strain for a structural member, or a length-3 NumPy
+            array for a continuum element.
 
         Raises:
             EntityNotFoundError: If ``element_id`` was not part of the analysis.
+            InvalidElementError: If the element reports neither scalar
+                nor vector strain.
         """
-        element = self._get_element(element_id)
+        element = self._get_strain_reporting_element(element_id)
         return element.strain_from_dofs(self._element_dof_values(element))
 
-    def element_stress(self, element_id: int) -> float:
-        """Return the axial stress of an element, ``sigma = E * epsilon``.
+    def element_stress(self, element_id: int) -> float | np.ndarray:
+        """Return the stress of an element, ``sigma = D @ epsilon`` (or ``E * epsilon``).
+
+        For a **structural member** (bar, truss, frame), this is the
+        scalar axial stress (positive is tension). For a **continuum
+        element** (CST), this is the stress vector
+        ``[sigma_x, sigma_y, tau_xy]``.
 
         Args:
             element_id: ID of the element to query.
 
         Returns:
-            Stress in pascals. Positive is tension, negative is compression.
+            A scalar stress for a structural member, or a length-3 NumPy
+            array for a continuum element.
 
         Raises:
             EntityNotFoundError: If ``element_id`` was not part of the analysis.
+            InvalidElementError: If the element reports neither scalar
+                nor vector stress.
         """
-        element = self._get_element(element_id)
+        element = self._get_strain_reporting_element(element_id)
         return element.stress_from_dofs(self._element_dof_values(element))
 
     def element_axial_force(self, element_id: int) -> float:
@@ -177,9 +213,44 @@ class AnalysisResult:
 
         Raises:
             EntityNotFoundError: If ``element_id`` was not part of the analysis.
+            InvalidElementError: If the element has no meaningful axial
+                force (e.g. a continuum element -- see
+                :meth:`element_stress` for its stress state instead).
         """
-        element = self._get_element(element_id)
+        element = self._get_structural_element(element_id)
         return element.axial_force_from_dofs(self._element_dof_values(element))
+
+    def element_von_mises(self, element_id: int) -> float:
+        """Return the von Mises equivalent stress of a continuum element.
+
+        Args:
+            element_id: ID of the continuum element to query.
+
+        Returns:
+            Von Mises equivalent stress, in pascals.
+
+        Raises:
+            EntityNotFoundError: If ``element_id`` was not part of the analysis.
+            InvalidElementError: If the element is not a continuum element.
+        """
+        element = self._get_continuum_element(element_id)
+        return element.von_mises_from_dofs(self._element_dof_values(element))
+
+    def element_principal_stresses(self, element_id: int) -> tuple[float, float]:
+        """Return the in-plane principal stresses of a continuum element.
+
+        Args:
+            element_id: ID of the continuum element to query.
+
+        Returns:
+            ``(sigma_1, sigma_2)``, in pascals (``sigma_1 >= sigma_2``).
+
+        Raises:
+            EntityNotFoundError: If ``element_id`` was not part of the analysis.
+            InvalidElementError: If the element is not a continuum element.
+        """
+        element = self._get_continuum_element(element_id)
+        return element.principal_stresses_from_dofs(self._element_dof_values(element))
 
     def element_end_forces(self, element_id: int):
         """Return the axial force, shear force, and bending moment at both ends of a frame element.
@@ -273,7 +344,7 @@ class AnalysisResult:
         bending_moment = self.element_bending_moment(element_id, end=end)
         return bending_moment * extreme_fiber_distance / element.cross_section.second_moment_of_area
 
-    def _get_element(self, element_id: int) -> StructuralElement:
+    def _get_element(self, element_id: int) -> AssemblableElement:
         for element in self.elements:
             if element.id == element_id:
                 return element
@@ -288,6 +359,36 @@ class AnalysisResult:
             )
         return element
 
-    def _element_dof_values(self, element: StructuralElement) -> list[float]:
+    def _get_structural_element(self, element_id: int) -> StructuralElement:
+        element = self._get_element(element_id)
+        if not isinstance(element, StructuralElement):
+            raise InvalidElementError(
+                f"Element {element_id} ({type(element).__name__}) does not report axial "
+                "force; only structural members (bar, truss, frame) do."
+            )
+        return element
+
+    def _get_continuum_element(self, element_id: int) -> ContinuumElement:
+        element = self._get_element(element_id)
+        if not isinstance(element, ContinuumElement):
+            raise InvalidElementError(
+                f"Element {element_id} ({type(element).__name__}) is not a continuum "
+                "element; only elements like CSTElement2D report von Mises or "
+                "principal stress."
+            )
+        return element
+
+    def _get_strain_reporting_element(
+        self, element_id: int
+    ) -> StructuralElement | ContinuumElement:
+        element = self._get_element(element_id)
+        if not isinstance(element, (StructuralElement, ContinuumElement)):
+            raise InvalidElementError(
+                f"Element {element_id} ({type(element).__name__}) does not report "
+                "strain or stress."
+            )
+        return element
+
+    def _element_dof_values(self, element: AssemblableElement) -> list[float]:
         """Displacement values for an element's DOFs, ordered per ``dof_keys()``."""
         return [self.displacement(node_id, dof) for node_id, dof in element.dof_keys()]

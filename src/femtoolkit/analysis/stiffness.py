@@ -5,8 +5,10 @@ displacements to the nodal forces required to produce them:
 ``{f} = [k]{u}``. This module implements the stiffness matrix for the
 finite elements in the toolkit: a two-node 1D axial bar, a two-node 2D
 truss element (an axial bar transformed into global X/Y coordinates via
-its direction cosines), and a two-node 2D Euler-Bernoulli frame element
-(axial + bending stiffness, transformed into global X/Y/RZ coordinates).
+its direction cosines), a two-node 2D Euler-Bernoulli frame element
+(axial + bending stiffness, transformed into global X/Y/RZ coordinates),
+and a three-node 2D continuum triangle (CST) element, built directly from
+the reusable continuum math in :mod:`femtoolkit.continuum`.
 """
 
 from __future__ import annotations
@@ -241,3 +243,50 @@ def frame_element_stiffness_2d(
     )
     transformation = frame_transformation_matrix_2d(cos_theta, sin_theta)
     return transformation.T @ local_stiffness @ transformation
+
+
+def cst_element_stiffness(
+    thickness: float, area: float, b_matrix: np.ndarray, d_matrix: np.ndarray
+) -> np.ndarray:
+    """Compute the stiffness matrix of a 3-node constant strain triangle (CST).
+
+    .. code-block:: text
+
+        Ke = t * A * B^T * D * B
+
+    where ``t`` is the element thickness, ``A`` is its (physical, always
+    positive) area, ``B`` is its strain-displacement matrix (see
+    :func:`~femtoolkit.continuum.strain.triangle_strain_displacement_matrix`),
+    and ``D`` is the material's constitutive matrix (see
+    :mod:`femtoolkit.continuum.constitutive`). Unlike a truss or frame
+    element, no coordinate transformation is needed: ``ux``/``uy`` are
+    already expressed in global coordinates for a continuum element, so
+    this formula produces the element's *global* stiffness matrix
+    directly.
+
+    Args:
+        thickness: Element thickness, in meters. Must be positive.
+        area: Element area, in square meters. Must be positive (the
+            caller is responsible for passing the physical, unsigned
+            area -- see :mod:`femtoolkit.continuum.geometry`).
+        b_matrix: The element's 3x6 strain-displacement matrix.
+        d_matrix: The material's 3x3 constitutive matrix.
+
+    Returns:
+        A 6x6 NumPy array, the symmetric CST element stiffness matrix.
+
+    Raises:
+        ValidationError: If ``thickness`` or ``area`` is not a positive,
+            finite number.
+
+    Example:
+        >>> from femtoolkit.continuum import plane_stress_matrix
+        >>> from femtoolkit.continuum import triangle_strain_displacement_matrix
+        >>> b = triangle_strain_displacement_matrix(0.0, 0.0, 1.0, 0.0, 0.0, 1.0)
+        >>> d = plane_stress_matrix(youngs_modulus=1.0, poisson_ratio=0.3)
+        >>> cst_element_stiffness(thickness=1.0, area=0.5, b_matrix=b, d_matrix=d).shape
+        (6, 6)
+    """
+    _validate_positive_finite(thickness=thickness, area=area)
+
+    return thickness * area * b_matrix.T @ d_matrix @ b_matrix

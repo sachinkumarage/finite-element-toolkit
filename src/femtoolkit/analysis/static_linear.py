@@ -3,12 +3,17 @@
 This module defines :class:`StaticLinearAnalysis`, which orchestrates the
 reusable mathematical foundation (DOF mapping, stiffness assembly, the
 linear system, and the solver) against a :class:`~femtoolkit.mesh.mesh.Mesh`
-of structural elements. The analysis itself performs no element-specific
+of elements. The analysis itself performs no element-specific
 computation; it works against any element that satisfies the
-:class:`~femtoolkit.analysis.element.StructuralElement` protocol --
-:class:`~femtoolkit.mesh.bar_element.BarElement` (one axial DOF per node)
-and :class:`~femtoolkit.mesh.truss_element.TrussElement2D` (two DOFs per
-node) both qualify, without this module importing either class by name.
+:class:`~femtoolkit.analysis.element.AssemblableElement` protocol --
+the minimal interface needed to assemble and solve, satisfied by every
+element type in the toolkit (:class:`~femtoolkit.mesh.bar_element.BarElement`,
+:class:`~femtoolkit.mesh.truss_element.TrussElement2D`,
+:class:`~femtoolkit.mesh.frame_element.FrameElement2D`, and
+:class:`~femtoolkit.mesh.cst_element.CSTElement2D`) without this module
+importing any of them by name. Richer post-processing capabilities
+(scalar axial results, vector continuum strain/stress) are handled by
+:class:`~femtoolkit.results.analysis_result.AnalysisResult`, not here.
 """
 
 from __future__ import annotations
@@ -20,7 +25,7 @@ import numpy as np
 from femtoolkit.analysis.assembly import ElementStiffnessContribution, assemble_global_stiffness
 from femtoolkit.analysis.boundary_conditions import BoundaryCondition
 from femtoolkit.analysis.dof import DOFMap
-from femtoolkit.analysis.element import StructuralElement
+from femtoolkit.analysis.element import AssemblableElement
 from femtoolkit.analysis.loads import NodalLoad
 from femtoolkit.analysis.system import LinearSystem, build_force_vector, solve
 from femtoolkit.exceptions import (
@@ -66,7 +71,7 @@ class StaticLinearAnalysis:
 
         Args:
             mesh: The mesh to analyze. Its elements must all satisfy the
-                :class:`~femtoolkit.analysis.element.StructuralElement`
+                :class:`~femtoolkit.analysis.element.AssemblableElement`
                 protocol and share the same ``dofs_per_node``; this is
                 checked when :meth:`solve` is called.
         """
@@ -101,7 +106,7 @@ class StaticLinearAnalysis:
             InvalidAnalysisError: If the mesh has no nodes or no elements.
             InvalidElementError: If the mesh contains an element that does
                 not satisfy the
-                :class:`~femtoolkit.analysis.element.StructuralElement`
+                :class:`~femtoolkit.analysis.element.AssemblableElement`
                 protocol, or elements with inconsistent ``dofs_per_node``.
             InsufficientConstraintsError: If no boundary conditions have
                 been added.
@@ -120,10 +125,10 @@ class StaticLinearAnalysis:
         if not elements:
             raise InvalidAnalysisError("Cannot solve an analysis whose mesh has no elements.")
         for element in elements:
-            if not isinstance(element, StructuralElement):
+            if not isinstance(element, AssemblableElement):
                 raise InvalidElementError(
                     "StaticLinearAnalysis only supports elements implementing the "
-                    f"structural element interface, got {type(element).__name__} "
+                    f"assemblable element interface, got {type(element).__name__} "
                     f"(id={element.id})."
                 )
 

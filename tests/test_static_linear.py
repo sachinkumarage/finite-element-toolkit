@@ -10,8 +10,8 @@ from femtoolkit.exceptions import (
     InvalidElementError,
     SingularSystemError,
 )
-from femtoolkit.materials import Material
-from femtoolkit.mesh import BarElement, Element, FrameElement2D, Mesh, Node
+from femtoolkit.materials import LinearElastic2D, Material
+from femtoolkit.mesh import BarElement, CSTElement2D, Element, FrameElement2D, Mesh, Node
 from femtoolkit.sections import CrossSection
 
 
@@ -117,6 +117,63 @@ def test_solve_detects_singular_frame_system(steel: Material) -> None:
     mesh.add_element(
         FrameElement2D(id=1, nodes=(node_1, node_2), material=steel, cross_section=section)
     )
+
+    analysis = StaticLinearAnalysis(mesh)
+    analysis.add_boundary_condition(BoundaryCondition(node_id=1, dof=TranslationDOF.X, value=0.0))
+    analysis.add_load(NodalLoad(node_id=2, dof=TranslationDOF.Y, value=1000.0))
+
+    with pytest.raises(SingularSystemError):
+        analysis.solve()
+
+
+def test_solve_two_cst_elements_sharing_a_node() -> None:
+    """A two-triangle mesh sharing an edge (two nodes) must assemble and
+    solve through the exact same generic code path as bar/truss/frame
+    meshes, without any CST-specific branch in StaticLinearAnalysis.
+    """
+    material = LinearElastic2D(youngs_modulus=200e9, poisson_ratio=0.3, formulation="plane_stress")
+    node_1 = Node(id=1, x=0.0, y=0.0, z=0.0)
+    node_2 = Node(id=2, x=1.0, y=0.0, z=0.0)
+    node_3 = Node(id=3, x=1.0, y=1.0, z=0.0)
+    node_4 = Node(id=4, x=0.0, y=1.0, z=0.0)
+
+    lower = CSTElement2D(id=1, nodes=(node_1, node_2, node_3), material=material, thickness=0.01)
+    upper = CSTElement2D(id=2, nodes=(node_1, node_3, node_4), material=material, thickness=0.01)
+
+    mesh = Mesh()
+    for node in (node_1, node_2, node_3, node_4):
+        mesh.add_node(node)
+    for element in (lower, upper):
+        mesh.add_element(element)
+
+    analysis = StaticLinearAnalysis(mesh)
+    analysis.add_boundary_condition(BoundaryCondition(node_id=1, dof=TranslationDOF.X, value=0.0))
+    analysis.add_boundary_condition(BoundaryCondition(node_id=1, dof=TranslationDOF.Y, value=0.0))
+    analysis.add_boundary_condition(BoundaryCondition(node_id=4, dof=TranslationDOF.X, value=0.0))
+    analysis.add_load(NodalLoad(node_id=2, dof=TranslationDOF.X, value=1000.0))
+    analysis.add_load(NodalLoad(node_id=3, dof=TranslationDOF.X, value=1000.0))
+    result = analysis.solve()
+
+    # Node 1 is fully fixed; the mesh must deform without raising.
+    ux3, _ = result.node_displacement(3)
+    assert ux3 > 0.0
+
+
+def test_solve_detects_singular_cst_system() -> None:
+    """A single CST triangle constrained only in X is free to translate
+    and rotate rigidly in Y -- the continuum analogue of the Version 4/5
+    structural-instability checks.
+    """
+    material = LinearElastic2D(youngs_modulus=200e9, poisson_ratio=0.3, formulation="plane_stress")
+    node_1 = Node(id=1, x=0.0, y=0.0, z=0.0)
+    node_2 = Node(id=2, x=1.0, y=0.0, z=0.0)
+    node_3 = Node(id=3, x=0.0, y=1.0, z=0.0)
+    element = CSTElement2D(id=1, nodes=(node_1, node_2, node_3), material=material, thickness=0.01)
+
+    mesh = Mesh()
+    for node in (node_1, node_2, node_3):
+        mesh.add_node(node)
+    mesh.add_element(element)
 
     analysis = StaticLinearAnalysis(mesh)
     analysis.add_boundary_condition(BoundaryCondition(node_id=1, dof=TranslationDOF.X, value=0.0))

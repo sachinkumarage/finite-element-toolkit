@@ -26,6 +26,18 @@ class ValidationError(FiniteElementToolkitError):
     """
 
 
+class DegenerateElementError(ValidationError):
+    """Raised when a continuum element's geometry has zero (or near-zero) area.
+
+    A degenerate triangle -- collinear nodes, nearly collinear nodes, or
+    duplicate node coordinates -- has no well-defined strain-displacement
+    matrix (the CST formulation divides by the element's area). This is a
+    :class:`ValidationError` specialization so existing code that catches
+    the broader category still works, while callers that specifically
+    care about element geometry can catch this exception precisely.
+    """
+
+
 class DuplicateIDError(FiniteElementToolkitError):
     """Raised when an entity is added to a container under an ID that is
     already in use.

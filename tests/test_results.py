@@ -11,8 +11,8 @@ from femtoolkit.analysis import (
     TranslationDOF,
 )
 from femtoolkit.exceptions import EntityNotFoundError, InvalidElementError, ValidationError
-from femtoolkit.materials import Material
-from femtoolkit.mesh import BarElement, FrameElement2D, Mesh, Node, TrussElement2D
+from femtoolkit.materials import LinearElastic2D, Material
+from femtoolkit.mesh import BarElement, CSTElement2D, FrameElement2D, Mesh, Node, TrussElement2D
 from femtoolkit.sections import CrossSection
 
 
@@ -228,3 +228,97 @@ def test_element_shear_force_rejects_non_frame_element(single_bar_result) -> Non
 
     with pytest.raises(InvalidElementError):
         result.element_shear_force(1)
+
+
+# --- Continuum element results (Version 6) ---
+
+
+@pytest.fixture
+def cst_result():
+    """A single CST triangle with an exact constant-strain displacement
+    field prescribed directly as the boundary conditions, so the result
+    is analytically known without needing to hand-derive a load case.
+    """
+    material = LinearElastic2D(youngs_modulus=200e9, poisson_ratio=0.3, formulation="plane_stress")
+    node_1 = Node(id=1, x=0.0, y=0.0, z=0.0)
+    node_2 = Node(id=2, x=1.0, y=0.0, z=0.0)
+    node_3 = Node(id=3, x=0.0, y=1.0, z=0.0)
+    element = CSTElement2D(id=1, nodes=(node_1, node_2, node_3), material=material, thickness=0.01)
+
+    mesh = Mesh()
+    for node in (node_1, node_2, node_3):
+        mesh.add_node(node)
+    mesh.add_element(element)
+
+    analysis = StaticLinearAnalysis(mesh)
+    # Prescribe every DOF directly: u = 0.002*x, v = 0 -> uniaxial strain.
+    analysis.add_boundary_condition(BoundaryCondition(node_id=1, dof=TranslationDOF.X, value=0.0))
+    analysis.add_boundary_condition(BoundaryCondition(node_id=1, dof=TranslationDOF.Y, value=0.0))
+    analysis.add_boundary_condition(BoundaryCondition(node_id=2, dof=TranslationDOF.X, value=0.002))
+    analysis.add_boundary_condition(BoundaryCondition(node_id=2, dof=TranslationDOF.Y, value=0.0))
+    analysis.add_boundary_condition(BoundaryCondition(node_id=3, dof=TranslationDOF.X, value=0.0))
+    analysis.add_boundary_condition(BoundaryCondition(node_id=3, dof=TranslationDOF.Y, value=0.0))
+
+    return analysis.solve(), material
+
+
+def test_element_strain_returns_vector_for_continuum_element(cst_result) -> None:
+    result, _ = cst_result
+
+    strain = result.element_strain(1)
+    assert_allclose(strain, [0.002, 0.0, 0.0], atol=1e-15)
+
+
+def test_element_stress_returns_vector_for_continuum_element(cst_result) -> None:
+    result, material = cst_result
+
+    stress = result.element_stress(1)
+    strain = result.element_strain(1)
+    assert_allclose(stress, material.constitutive_matrix @ strain)
+
+
+def test_element_von_mises(cst_result) -> None:
+    result, _ = cst_result
+
+    sigma_x, sigma_y, tau_xy = result.element_stress(1)
+    expected = (sigma_x**2 - sigma_x * sigma_y + sigma_y**2 + 3 * tau_xy**2) ** 0.5
+    assert_allclose(result.element_von_mises(1), expected)
+
+
+def test_element_principal_stresses(cst_result) -> None:
+    result, _ = cst_result
+
+    sigma_x, sigma_y, tau_xy = result.element_stress(1)
+    sigma_1, sigma_2 = result.element_principal_stresses(1)
+
+    assert_allclose(sigma_1 + sigma_2, sigma_x + sigma_y)
+    assert sigma_1 >= sigma_2
+
+
+def test_element_axial_force_rejects_continuum_element(cst_result) -> None:
+    result, _ = cst_result
+
+    with pytest.raises(InvalidElementError):
+        result.element_axial_force(1)
+
+
+def test_element_von_mises_rejects_non_continuum_element(single_bar_result) -> None:
+    result, _, _ = single_bar_result
+
+    with pytest.raises(InvalidElementError):
+        result.element_von_mises(1)
+
+
+def test_element_principal_stresses_rejects_non_continuum_element(single_bar_result) -> None:
+    result, _, _ = single_bar_result
+
+    with pytest.raises(InvalidElementError):
+        result.element_principal_stresses(1)
+
+
+def test_element_strain_still_returns_scalar_for_bar_element(single_bar_result) -> None:
+    """Version 3 behavior must be unchanged: a bar element's strain is still a float."""
+    result, _, _ = single_bar_result
+
+    strain = result.element_strain(1)
+    assert isinstance(strain, float)

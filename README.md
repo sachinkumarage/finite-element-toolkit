@@ -2,7 +2,7 @@
 
 An open-source Python toolkit for developing finite element analysis (FEA) capabilities, built incrementally as a series of versioned milestones.
 
-**This is the Version 5 release.** Version 1 established the project's architecture and core domain model. Version 2 added the basic mathematical foundation for FEA. Version 3 turned that into a validated **1D structural analysis** capability (a bar element, `StaticLinearAnalysis`, and results). Version 4 extended the same analysis workflow to **2D truss structures**: two translational DOFs per node, a `TrussElement2D` transformed from local to global coordinates via its direction cosines, and X/Y loads, constraints, displacements, reactions, and member forces. Version 5 adds **2D Euler-Bernoulli beam and frame analysis**: a rotational DOF per node, a `FrameElement2D` that resists axial force, shear force, and bending moment, and per-element shear/moment/bending-stress results. It does **not** yet contain 3D beams, Timoshenko beams, plate, shell, 2D continuum, or 3D elements, or nonlinear/dynamic analysis, or visualization.
+**This is the Version 6 release.** Version 1 established the project's architecture and core domain model. Version 2 added the basic mathematical foundation for FEA. Version 3 turned that into a validated **1D structural analysis** capability (a bar element, `StaticLinearAnalysis`, and results). Version 4 extended the same analysis workflow to **2D truss structures**: two translational DOFs per node, a `TrussElement2D` transformed from local to global coordinates via its direction cosines, and X/Y loads, constraints, displacements, reactions, and member forces. Version 5 added **2D Euler-Bernoulli beam and frame analysis**: a rotational DOF per node, a `FrameElement2D` that resists axial force, shear force, and bending moment, and per-element shear/moment/bending-stress results. Version 6 introduces the toolkit's first true **2D continuum element**: a `CSTElement2D` (3-node constant strain triangle) representing a finite *area* of material rather than a line member, with plane stress/strain constitutive models, a strain-displacement (`B`) matrix, and von Mises/principal stress recovery. It does **not** yet contain quadrilateral or higher-order continuum elements, 3D beams, Timoshenko beams, plate, shell, or 3D solid elements, or nonlinear/dynamic analysis, or visualization.
 
 ## Current Features
 
@@ -51,6 +51,17 @@ An open-source Python toolkit for developing finite element analysis (FEA) capab
 - **Frame results** — `element_end_forces`, `element_shear_force`, `element_bending_moment`, and `element_bending_stress` on `AnalysisResult`, gated to elements satisfying the new `FrameStructuralElement` protocol; `node_displacement`/`node_reaction` generalized to return one component per active DOF (`(ux, uy, rz)` for a frame analysis, unchanged `(ux, uy)` for a truss analysis)
 - **Backward compatible** — `BarElement` and `TrussElement2D` are untouched; assembly, the linear system, and the solver required no frame-specific changes at all, since they were already DOF-count-agnostic since Version 4
 - **Engineering validation** — five validation cases plus a portal frame in `tests/validation/`, each checked against a classical Euler-Bernoulli analytical solution or an independently derived equilibrium/consistency invariant (see [Version 5](#version-5) below)
+
+**Version 6 — 2D continuum elements**
+
+- **Continuum math foundation** (`femtoolkit.continuum`) — independently testable pure functions for triangle geometry, linear shape functions, the strain-displacement (`B`) matrix, plane stress/strain constitutive (`D`) matrices, and stress recovery (including von Mises and principal stress), kept separate from the element class that coordinates them
+- **2D linear elastic material** — `LinearElastic2D`, a dedicated constitutive model (Young's modulus, Poisson's ratio, and a `"plane_stress"`/`"plane_strain"` formulation) distinct from the structural-element `Material`
+- **CST element** — `CSTElement2D`, a three-node, two-DOF-per-node continuum element (`ux`, `uy` only — no rotational DOF) with a constant strain-displacement matrix and stiffness `Ke = t*A*Bᵀ*D*B`; either clockwise or counter-clockwise node order is accepted and gives identical results
+- **Element interface split** — `AssemblableElement` (the minimal interface `StaticLinearAnalysis` needs: DOF mapping and a stiffness matrix) is now the base protocol; `StructuralElement` (scalar axial results) and `ContinuumElement` (vector strain/stress, von Mises, principal stress) are two independent extensions of it, so a continuum element and a structural member can both be assembled and solved through the exact same code path
+- **Continuum results** — `element_strain`/`element_stress` are reused across element types (returning a scalar for a structural member, a 3-component array `[x, y, xy]` for a continuum element); `element_von_mises` and `element_principal_stresses` are new, gated to continuum elements
+- **New exception** — `DegenerateElementError`, raised for collinear, nearly collinear, or duplicate-coordinate triangle nodes
+- **Backward compatible** — `BarElement`, `TrussElement2D`, and `FrameElement2D` are untouched; assembly, the linear system, and the solver required no continuum-specific changes
+- **Engineering validation** — a patch test (exact constant-strain reproduction across three differently shaped triangles), an independently hand-derived plane-stress/plane-strain constitutive matrix and single-triangle stiffness matrix, a boundary-artifact-free uniaxial-stress recovery check, and a two-triangle assembly/equilibrium/continuity check (see [Version 6](#version-6) below)
 
 ## Installation
 
@@ -212,6 +223,37 @@ print(result.node_displacement(2))  # (0.0, -1.600064e-03, -1.200048e-03) -- (ux
 print(result.node_reaction(1))  # (0.0, 1000.0, 2000.0) -- (Rx, Ry, Mz)
 print(result.element_bending_moment(1))  # 2000.0 N*m, the fixed-end moment
 print(result.element_shear_force(1))  # 1000.0 N, the fixed-end shear
+```
+
+Solving a single CST continuum element with Version 6 (see [Version 6](#version-6) below for the theory):
+
+```python
+from femtoolkit.analysis import BoundaryCondition, NodalLoad, StaticLinearAnalysis, TranslationDOF
+from femtoolkit.materials import LinearElastic2D
+from femtoolkit.mesh import CSTElement2D, Mesh, Node
+
+material = LinearElastic2D(youngs_modulus=200e9, poisson_ratio=0.3, formulation="plane_stress")
+node_1 = Node(id=1, x=0.0, y=0.0, z=0.0)
+node_2 = Node(id=2, x=1.0, y=0.0, z=0.0)
+node_3 = Node(id=3, x=0.0, y=1.0, z=0.0)
+triangle = CSTElement2D(id=1, nodes=(node_1, node_2, node_3), material=material, thickness=0.01)
+
+mesh = Mesh()
+mesh.add_node(node_1)
+mesh.add_node(node_2)
+mesh.add_node(node_3)
+mesh.add_element(triangle)
+
+analysis = StaticLinearAnalysis(mesh)
+analysis.add_boundary_condition(BoundaryCondition(node_id=1, dof=TranslationDOF.X, value=0.0))
+analysis.add_boundary_condition(BoundaryCondition(node_id=1, dof=TranslationDOF.Y, value=0.0))
+analysis.add_boundary_condition(BoundaryCondition(node_id=3, dof=TranslationDOF.X, value=0.0))
+analysis.add_load(NodalLoad(node_id=2, dof=TranslationDOF.X, value=5000.0))
+result = analysis.solve()
+
+print(result.element_strain(1))  # [5e-06, -1.5e-06, 0.0] -- [epsilon_x, epsilon_y, gamma_xy]
+print(result.element_stress(1))  # [1e+06, ~0.0, ~0.0] Pa -- [sigma_x, sigma_y, tau_xy]
+print(result.element_von_mises(1))  # 1e+06 Pa
 ```
 
 ## Version 2
@@ -501,23 +543,127 @@ Six validation cases in `tests/validation/`, each checked against a classical cl
 
 Version 5 does not include 3D beams, Timoshenko beams, distributed beam loads, plate, shell, 2D continuum, or 3D elements, nonlinear or dynamic analysis, buckling, modal analysis, thermal analysis, contact, automatic mesh generation, or visualization. See the [Roadmap](#roadmap).
 
+## Version 6
+
+Every element through Version 5 represents a structural *member*: a line between two nodes. Version 6 introduces the toolkit's first **2D continuum element** -- the 3-node constant strain triangle (CST) -- which represents a finite *area* of material. Instead of `Node --- Node`, a structure is now (optionally) modeled as a mesh of triangles occupying a 2D region, with two translational DOFs per node (`ux`, `uy`) and no rotational DOF, since a continuum point has no orientation to rotate.
+
+**Engineering assumptions:** linear elastic, isotropic material; small deformation; small strain; static loading; a constant strain field per element (see below); a constant thickness per element; and the same consistent SI unit system as every prior version. **Sign convention:** engineering shear strain, `gamma_xy = du/dy + dv/dx` (not tensorial shear strain `epsilon_xy = gamma_xy / 2`) -- every formula below and throughout `femtoolkit.continuum` uses this convention consistently.
+
+### Continuum mechanics vs. structural elements
+
+A truss or frame element's kinematics reduce to a single number along its axis (or three, for a frame's DOFs) -- there is no "field" to speak of. A continuum element approximates a genuinely 2D displacement field, `u(x, y)` and `v(x, y)`, from nodal values via shape functions:
+
+```text
+u(x, y) = N1(x,y)*u1 + N2(x,y)*u2 + N3(x,y)*u3
+v(x, y) = N1(x,y)*v1 + N2(x,y)*v2 + N3(x,y)*v3
+```
+
+with `N1 + N2 + N3 = 1` everywhere (partition of unity) and `Ni(node_j) = 1` if `i == j` else `0` (the nodal/Kronecker-delta property) -- both verified directly in `tests/test_shape_functions.py`.
+
+### Plane stress and plane strain
+
+A 2D model must reduce the full 3D stress state with one of two assumptions:
+
+- **Plane stress** (`sigma_z = 0`): thin, flat bodies loaded in their own plane (e.g. a thin plate).
+- **Plane strain** (`epsilon_z = 0`): bodies long in the out-of-plane direction and restrained from extending along it (e.g. a long dam cross-section).
+
+```text
+D_plane_stress =
+E/(1-v^2) *
+[ 1    v       0    ]
+[ v    1       0    ]
+[ 0    0   (1-v)/2  ]
+
+D_plane_strain =
+E/((1+v)(1-2v)) *
+[ 1-v    v        0    ]
+[ v     1-v       0    ]
+[ 0      0    (1-2v)/2 ]
+```
+
+Both give the same `sigma = D @ epsilon` relation, but with meaningfully different values -- `LinearElastic2D(youngs_modulus, poisson_ratio, formulation="plane_stress" | "plane_strain")` selects which. This is a small, dedicated constitutive model, not a new responsibility bolted onto the structural-element `Material`.
+
+### The constant strain triangle (CST)
+
+For a 3-node triangle, each shape function is linear in `x` and `y`, so its gradient -- and therefore the strain field `epsilon = B @ d` -- is **constant** over the entire element for any fixed nodal displacement vector. This is the origin of the element's name, and its main limitation: a single CST element cannot represent a strain gradient (e.g. bending), only a uniform strain state.
+
+```text
+epsilon =
+[ epsilon_x ]     B =
+[ epsilon_y ]     1/(2A) *
+[ gamma_xy  ]     [ b1   0    b2   0    b3   0  ]
+                  [ 0    c1   0    c2   0    c3 ]
+                  [ c1   b1   c2   b2   c3   b3 ]
+
+b1 = y2-y3, b2 = y3-y1, b3 = y1-y2
+c1 = x3-x2, c2 = x1-x3, c3 = x2-x1
+```
+
+`CSTElement2D` connects three nodes (DOFs ordered `[ux1,uy1,ux2,uy2,ux3,uy3]`), a `LinearElastic2D` material, and a `thickness`. **Orientation policy:** nodes may be listed clockwise or counter-clockwise -- both are accepted and give identical strain, stress, and stiffness, because the *signed* area is used consistently inside `B` (matching the literal shape-function-derivative formulas) while the *absolute* area is used wherever a physical area is needed. A triangle with (near-)zero area -- collinear, nearly collinear, or duplicate-coordinate nodes -- raises `DegenerateElementError`.
+
+### Element stiffness matrix
+
+```text
+Ke = t * A * B^T * D * B
+```
+
+where `t` is thickness, `A` is the (always positive) physical area, `B` is the strain-displacement matrix, and `D` is the constitutive matrix. Unlike a truss or frame element, no coordinate transformation is needed -- `ux`/`uy` are already expressed in global coordinates for a continuum element, so this formula produces the element's *global* stiffness matrix directly. `Ke` scales linearly with both thickness and Young's modulus, and is positive semidefinite before boundary conditions are applied (verified in `tests/test_stiffness.py`).
+
+### Strain, stress, von Mises, and principal stress
+
+```text
+epsilon = B @ d              (strain from nodal displacements)
+sigma = D @ epsilon           (stress from strain, Hooke's law)
+
+sigma_vm (plane stress) = sqrt(sigma_x^2 - sigma_x*sigma_y + sigma_y^2 + 3*tau_xy^2)
+
+sigma_1, sigma_2 = (sigma_x+sigma_y)/2 +/- sqrt(((sigma_x-sigma_y)/2)^2 + tau_xy^2)
+```
+
+Under plane strain, the out-of-plane stress `sigma_z = v*(sigma_x+sigma_y)` is generally *nonzero* (unlike plane stress, where it is zero by definition); reusing the plane-stress von Mises formula for a plane-strain result would understate the true equivalent stress. `femtoolkit.continuum.stress.von_mises_3d` is the minimal, reusable core both `von_mises_plane_stress` and `von_mises_plane_strain` reduce to once the correct `sigma_z` is substituted.
+
+### Element interface split
+
+`StaticLinearAnalysis` only ever needs an element's ID, `dofs_per_node`, `dof_keys()`, and `stiffness_matrix` to assemble and solve -- captured by the new minimal `AssemblableElement` protocol. `StructuralElement` (scalar axial strain/stress/force -- bar, truss, frame) and `ContinuumElement` (vector strain/stress, von Mises, principal stress -- CST) are two independent extensions of it, not one a subtype of the other: a continuum element has no meaningful "axial force," and a structural member has no meaningful "principal stress." `StaticLinearAnalysis` itself required **zero** continuum-specific code -- it already worked against the minimal protocol, so a mesh of `CSTElement2D` instances assembles and solves through the exact same path as a mesh of `TrussElement2D` instances.
+
+`AnalysisResult.element_strain`/`element_stress` are reused across both kinds of element (returning a scalar for a structural member, a 3-element `[x, y, xy]` array for a continuum element) rather than introducing new method names, since both ultimately answer "what deformation/stress is this element experiencing." `element_von_mises` and `element_principal_stresses` are new, and (like `element_axial_force` for structural members) raise `InvalidElementError` if called on the wrong kind of element.
+
+### Engineering validation
+
+Five validation cases in `tests/validation/`:
+
+- **Patch test** (`test_cst_patch.py`) — for any linear displacement field `u=ax+by, v=cx+dy` prescribed at every node (so the solver has nothing left to solve for), the recovered strain must be the exact `[a, d, b+c]`, on three differently shaped triangles
+- **Plane stress** (`test_plane_stress.py`) — the constitutive matrix independently hand-derived for a steel material, plus a boundary-artifact-free uniaxial stress recovery: a displacement field derived analytically from a target uniaxial stress state must reproduce that exact stress (`sigma_x = applied`, `sigma_y ≈ 0`, `tau_xy ≈ 0`)
+- **Plane strain** (`test_plane_strain.py`) — the constitutive matrix independently hand-derived, and shown to meaningfully differ from (and be stiffer than) the plane-stress matrix for the same material
+- **Single triangle** (`test_single_triangle.py`) — the full 6x6 stiffness matrix for `E=1, v=0.3, t=1` on nodes `(0,0),(1,0),(0,1)`, computed by an independent from-scratch formula implementation (not the library code under test) and compared directly
+- **Two-triangle plate** (`test_two_triangle_plate.py`) — a rectangle split into two CST elements under a statically-equivalent uniform edge traction; validates assembly, displacement continuity at the shared edge, reaction equilibrium, and that both elements recover the identical uniform stress state
+
+### Limitations
+
+Version 6 does not include quadrilateral elements, 6-node (quadratic) triangles, higher-order elements, 3D solid elements, nonlinear material models, plasticity, hyperelasticity, large deformation, dynamic analysis, modal analysis, buckling, contact, fracture, adaptive meshing, automatic mesh generation, mesh refinement, or visualization. See the [Roadmap](#roadmap).
+
 ## Project Structure
 
 ```text
 finite-element-toolkit/
 ├── src/femtoolkit/
-│   ├── materials/          # Material data model
+│   ├── materials/          # Material, LinearElastic2D (2D constitutive model)
 │   ├── mesh/               # Node, Element, BarElement, TrussElement2D,
-│   │                       # FrameElement2D, Mesh
+│   │                       # FrameElement2D, CSTElement2D, Mesh
 │   ├── sections/           # CrossSection
+│   ├── continuum/          # Reusable 2D continuum math: geometry, shape
+│   │                       # functions, strain-displacement (B) matrix,
+│   │                       # plane stress/strain constitutive (D) matrices,
+│   │                       # stress/von Mises/principal stress recovery
 │   ├── analysis/           # DOFs (incl. RotationDOF), boundary conditions,
 │   │                       # loads, stiffness matrix, transformation
 │   │                       # matrix, assembly, linear system, the
-│   │                       # StructuralElement/FrameStructuralElement
+│   │                       # AssemblableElement/StructuralElement/
+│   │                       # FrameStructuralElement/ContinuumElement
 │   │                       # protocols, and the StaticLinearAnalysis workflow
 │   ├── results/            # AnalysisResult, FrameEndForces, FrameElementForces
 │   ├── units/               # SI unit constants
-│   ├── exceptions/          # Custom exception types
+│   ├── exceptions/          # Custom exception types (incl. DegenerateElementError)
 │   ├── config.py             # Package metadata and defaults
 │   └── logging_config.py     # Package logger configuration
 ├── examples/                  # Runnable example scripts
@@ -557,14 +703,17 @@ python examples/multi_material_truss.py       # Version 4: multi-material, multi
 python examples/cantilever_beam.py            # Version 5: cantilever beam under a tip load
 python examples/cantilever_end_moment.py      # Version 5: cantilever beam under a pure end moment
 python examples/portal_frame.py               # Version 5: two-column, one-beam portal frame
+python examples/single_cst_element.py         # Version 6: single CST triangle under uniaxial tension
+python examples/two_triangle_plate.py         # Version 6: two-triangle plate, assembly + equilibrium
+python examples/cst_patch_test.py             # Version 6: constant-strain patch test
 ```
 
 ## Roadmap
 
 Future versions will build a more complete FEA solver on top of this foundation. None of the following is implemented yet:
 
-- **Version 6** — 2D continuum elements (plane stress/strain: triangular and quadrilateral elements, shape functions, numerical integration, stress/strain recovery)
-- **Version 7** — Advanced mesh and visualization
+- **Version 7** — 2D quadrilateral elements: a 4-node bilinear element in natural coordinates `(xi, eta)`, the Jacobian transformation, and Gauss quadrature numerical integration -- the key new mathematical concepts a constant-strain triangle does not need
+- **Version 8** — Advanced mesh and visualization
 - **Later** — 3D elements, GUI, reporting, and more
 
 ## License

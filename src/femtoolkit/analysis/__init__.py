@@ -9,6 +9,7 @@ from femtoolkit.analysis.loads import NodalLoad
 from femtoolkit.analysis.static_linear import StaticLinearAnalysis
 from femtoolkit.analysis.stiffness import (
     bar_element_stiffness,
+    cst_element_stiffness,
     frame_element_stiffness_2d,
     frame_element_stiffness_local,
     truss_element_stiffness_2d,
@@ -28,6 +29,7 @@ __all__ = [
     "assemble_global_stiffness",
     "bar_element_stiffness",
     "build_force_vector",
+    "cst_element_stiffness",
     "frame_element_stiffness_2d",
     "frame_element_stiffness_local",
     "frame_transformation_matrix_2d",

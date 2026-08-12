@@ -1,6 +1,7 @@
 """Custom exception types shared across the Finite Element Toolkit domain model."""
 
 from femtoolkit.exceptions.exceptions import (
+    DegenerateElementError,
     DuplicateIDError,
     EntityNotFoundError,
     FiniteElementToolkitError,
@@ -12,6 +13,7 @@ from femtoolkit.exceptions.exceptions import (
 )
 
 __all__ = [
+    "DegenerateElementError",
     "DuplicateIDError",
     "EntityNotFoundError",
     "FiniteElementToolkitError",

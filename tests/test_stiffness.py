@@ -8,10 +8,12 @@ from numpy.testing import assert_allclose
 
 from femtoolkit.analysis import bar_element_stiffness
 from femtoolkit.analysis.stiffness import (
+    cst_element_stiffness,
     frame_element_stiffness_2d,
     frame_element_stiffness_local,
     truss_element_stiffness_2d,
 )
+from femtoolkit.continuum import plane_stress_matrix, triangle_strain_displacement_matrix
 from femtoolkit.exceptions import ValidationError
 
 
@@ -340,3 +342,88 @@ def test_frame_global_stiffness_invalid_length_raises(length: float) -> None:
             cos_theta=1.0,
             sin_theta=0.0,
         )
+
+
+# --- 3-node constant strain triangle (CST) element (Version 6) ---
+
+CST_TRIANGLE = (0.0, 0.0, 1.0, 0.0, 0.0, 1.0)
+
+
+def test_cst_stiffness_shape_and_symmetry() -> None:
+    b_matrix = triangle_strain_displacement_matrix(*CST_TRIANGLE)
+    d_matrix = plane_stress_matrix(youngs_modulus=200e9, poisson_ratio=0.3)
+
+    stiffness = cst_element_stiffness(
+        thickness=0.01, area=0.5, b_matrix=b_matrix, d_matrix=d_matrix
+    )
+
+    assert stiffness.shape == (6, 6)
+    assert_allclose(stiffness, stiffness.T)
+
+
+def test_cst_stiffness_matches_direct_formula() -> None:
+    b_matrix = triangle_strain_displacement_matrix(*CST_TRIANGLE)
+    d_matrix = plane_stress_matrix(youngs_modulus=200e9, poisson_ratio=0.3)
+    thickness, area = 0.01, 0.5
+
+    stiffness = cst_element_stiffness(
+        thickness=thickness, area=area, b_matrix=b_matrix, d_matrix=d_matrix
+    )
+
+    expected = thickness * area * b_matrix.T @ d_matrix @ b_matrix
+    assert_allclose(stiffness, expected)
+
+
+def test_cst_stiffness_scales_linearly_with_thickness() -> None:
+    b_matrix = triangle_strain_displacement_matrix(*CST_TRIANGLE)
+    d_matrix = plane_stress_matrix(youngs_modulus=200e9, poisson_ratio=0.3)
+
+    k_t1 = cst_element_stiffness(thickness=1.0, area=0.5, b_matrix=b_matrix, d_matrix=d_matrix)
+    k_t2 = cst_element_stiffness(thickness=2.0, area=0.5, b_matrix=b_matrix, d_matrix=d_matrix)
+
+    assert_allclose(k_t2, 2.0 * k_t1)
+
+
+def test_cst_stiffness_scales_linearly_with_youngs_modulus() -> None:
+    b_matrix = triangle_strain_displacement_matrix(*CST_TRIANGLE)
+    d_e1 = plane_stress_matrix(youngs_modulus=1.0, poisson_ratio=0.3)
+    d_e2 = plane_stress_matrix(youngs_modulus=2.0, poisson_ratio=0.3)
+
+    k_e1 = cst_element_stiffness(thickness=1.0, area=0.5, b_matrix=b_matrix, d_matrix=d_e1)
+    k_e2 = cst_element_stiffness(thickness=1.0, area=0.5, b_matrix=b_matrix, d_matrix=d_e2)
+
+    assert_allclose(k_e2, 2.0 * k_e1)
+
+
+def test_cst_stiffness_is_positive_semidefinite() -> None:
+    """Before boundary conditions, K must have no negative eigenvalues
+    (rigid-body modes give exactly-zero eigenvalues, never negative ones).
+    """
+    b_matrix = triangle_strain_displacement_matrix(*CST_TRIANGLE)
+    d_matrix = plane_stress_matrix(youngs_modulus=200e9, poisson_ratio=0.3)
+
+    stiffness = cst_element_stiffness(
+        thickness=0.01, area=0.5, b_matrix=b_matrix, d_matrix=d_matrix
+    )
+
+    eigenvalues = np.linalg.eigvalsh(stiffness)
+    tolerance = 1e-6 * np.max(np.abs(eigenvalues))
+    assert np.all(eigenvalues > -tolerance)
+
+
+@pytest.mark.parametrize("thickness", [0.0, -0.01, float("nan"), float("inf")])
+def test_cst_stiffness_invalid_thickness_raises(thickness: float) -> None:
+    b_matrix = triangle_strain_displacement_matrix(*CST_TRIANGLE)
+    d_matrix = plane_stress_matrix(youngs_modulus=200e9, poisson_ratio=0.3)
+
+    with pytest.raises(ValidationError):
+        cst_element_stiffness(thickness=thickness, area=0.5, b_matrix=b_matrix, d_matrix=d_matrix)
+
+
+@pytest.mark.parametrize("area", [0.0, -0.5, float("nan"), float("inf")])
+def test_cst_stiffness_invalid_area_raises(area: float) -> None:
+    b_matrix = triangle_strain_displacement_matrix(*CST_TRIANGLE)
+    d_matrix = plane_stress_matrix(youngs_modulus=200e9, poisson_ratio=0.3)
+
+    with pytest.raises(ValidationError):
+        cst_element_stiffness(thickness=0.01, area=area, b_matrix=b_matrix, d_matrix=d_matrix)
