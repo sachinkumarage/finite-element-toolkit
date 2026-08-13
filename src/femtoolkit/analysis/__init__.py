@@ -12,6 +12,7 @@ from femtoolkit.analysis.stiffness import (
     cst_element_stiffness,
     frame_element_stiffness_2d,
     frame_element_stiffness_local,
+    quad_element_stiffness,
     truss_element_stiffness_2d,
 )
 from femtoolkit.analysis.system import LinearSystem, build_force_vector, solve
@@ -33,6 +34,7 @@ __all__ = [
     "frame_element_stiffness_2d",
     "frame_element_stiffness_local",
     "frame_transformation_matrix_2d",
+    "quad_element_stiffness",
     "solve",
     "truss_element_stiffness_2d",
 ]

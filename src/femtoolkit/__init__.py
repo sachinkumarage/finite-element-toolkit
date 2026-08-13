@@ -14,7 +14,7 @@ constraints, displacements, reactions, and member forces. Version 5 added
 (:class:`~femtoolkit.analysis.dof.RotationDOF`), a
 :class:`~femtoolkit.mesh.frame_element.FrameElement2D` that resists axial
 force, shear force, and bending moment, and per-element shear force,
-bending moment, and bending stress results. Version 6 introduces the
+bending moment, and bending stress results. Version 6 introduced the
 toolkit's first 2D continuum element: a
 :class:`~femtoolkit.mesh.cst_element.CSTElement2D` (3-node constant
 strain triangle) representing a finite area of material, with plane
@@ -22,10 +22,17 @@ stress/plane strain constitutive models
 (:class:`~femtoolkit.materials.linear_elastic_2d.LinearElastic2D`), a
 strain-displacement matrix, and von Mises/principal stress recovery, all
 built from the independently testable math in :mod:`femtoolkit.continuum`.
+Version 7 adds a second continuum element,
+:class:`~femtoolkit.mesh.quad_element.QuadElement2D` (4-node bilinear
+quadrilateral, "Q4"): natural coordinates, isoparametric mapping, the
+Jacobian, and 2x2 Gauss quadrature -- needed because, unlike the CST
+element, a Q4 element's strain-displacement matrix has no closed form and
+varies within the element. It satisfies the same element protocols
+introduced in Version 6, so the solver required no Q4-specific code.
 
-The toolkit does not yet implement quadrilateral or higher-order
-continuum elements, 3D beams, Timoshenko beams, plate, shell, or 3D solid
-elements, nonlinear or dynamic analysis, or visualization.
+The toolkit does not yet implement higher-order continuum elements, 3D
+beams, Timoshenko beams, plate, shell, or 3D solid elements, nonlinear or
+dynamic analysis, or visualization.
 """
 
 from femtoolkit import logging_config  # noqa: F401  (attaches NullHandler on import)

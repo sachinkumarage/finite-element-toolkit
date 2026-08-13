@@ -7,8 +7,11 @@ finite elements in the toolkit: a two-node 1D axial bar, a two-node 2D
 truss element (an axial bar transformed into global X/Y coordinates via
 its direction cosines), a two-node 2D Euler-Bernoulli frame element
 (axial + bending stiffness, transformed into global X/Y/RZ coordinates),
-and a three-node 2D continuum triangle (CST) element, built directly from
-the reusable continuum math in :mod:`femtoolkit.continuum`.
+a three-node 2D continuum triangle (CST) element with a closed-form
+stiffness integral, and a four-node 2D continuum quadrilateral (Q4)
+element whose stiffness integral has no closed form and is instead
+evaluated with 2x2 Gauss quadrature -- all built directly from the
+reusable continuum math in :mod:`femtoolkit.continuum`.
 """
 
 from __future__ import annotations
@@ -17,6 +20,10 @@ import math
 
 import numpy as np
 
+from femtoolkit.continuum.gauss import GAUSS_2X2_POINTS
+from femtoolkit.continuum.jacobian import physical_shape_function_derivatives
+from femtoolkit.continuum.shape_functions import quad_shape_function_derivatives
+from femtoolkit.continuum.strain import quad_strain_displacement_matrix
 from femtoolkit.exceptions import ValidationError
 
 
@@ -290,3 +297,70 @@ def cst_element_stiffness(
     _validate_positive_finite(thickness=thickness, area=area)
 
     return thickness * area * b_matrix.T @ d_matrix @ b_matrix
+
+
+def quad_element_stiffness(
+    x_coords: np.ndarray | list[float],
+    y_coords: np.ndarray | list[float],
+    thickness: float,
+    d_matrix: np.ndarray,
+) -> np.ndarray:
+    """Compute the stiffness matrix of a 4-node bilinear quadrilateral (Q4) element.
+
+    Unlike the CST element, a Q4 element's strain-displacement matrix
+    ``B`` varies within the element (its shape functions are bilinear,
+    not linear -- see :mod:`femtoolkit.continuum.shape_functions`), so
+    the stiffness integral has no closed form:
+
+    .. code-block:: text
+
+        Ke = integral( B(x,y)^T D B(x,y) t ) dA
+
+    Mapping the area integral through the isoparametric Jacobian (see
+    :mod:`femtoolkit.continuum.jacobian`) turns it into an integral over
+    the natural-coordinate square, ``dA = det(J) dxi deta``, which is
+    then evaluated with 2x2 Gauss quadrature (see
+    :mod:`femtoolkit.continuum.gauss`):
+
+    .. code-block:: text
+
+        Ke = sum over the 4 Gauss points of:
+             weight * t * B(xi,eta)^T * D * B(xi,eta) * det(J(xi,eta))
+
+    Args:
+        x_coords: The element's four node X coordinates, in meters,
+            ordered per the isoparametric convention (see
+            :func:`~femtoolkit.continuum.shape_functions.quad_shape_functions`).
+        y_coords: The element's four node Y coordinates, in meters.
+        thickness: Element thickness, in meters. Must be positive.
+        d_matrix: The material's 3x3 constitutive matrix.
+
+    Returns:
+        An 8x8 NumPy array, the symmetric Q4 element stiffness matrix.
+
+    Raises:
+        ValidationError: If ``thickness`` is not a positive, finite number.
+        DegenerateElementError: If the Jacobian determinant is not
+            positive at any of the four Gauss points (degenerate,
+            self-intersecting, or clockwise-ordered geometry).
+
+    Example:
+        >>> from femtoolkit.continuum import plane_stress_matrix
+        >>> d = plane_stress_matrix(youngs_modulus=200e9, poisson_ratio=0.3)
+        >>> x = [0.0, 1.0, 1.0, 0.0]
+        >>> y = [0.0, 0.0, 1.0, 1.0]
+        >>> quad_element_stiffness(x, y, thickness=0.01, d_matrix=d).shape
+        (8, 8)
+    """
+    _validate_positive_finite(thickness=thickness)
+
+    stiffness = np.zeros((8, 8))
+    for point in GAUSS_2X2_POINTS:
+        dn_dxi, dn_deta = quad_shape_function_derivatives(point.xi, point.eta)
+        dn_dx, dn_dy, det_j = physical_shape_function_derivatives(
+            dn_dxi, dn_deta, x_coords, y_coords
+        )
+        b_matrix = quad_strain_displacement_matrix(dn_dx, dn_dy)
+        stiffness += point.weight * thickness * (b_matrix.T @ d_matrix @ b_matrix) * det_j
+
+    return stiffness

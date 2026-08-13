@@ -6,6 +6,7 @@ from femtoolkit.mesh.element import Element
 from femtoolkit.mesh.frame_element import FrameElement2D
 from femtoolkit.mesh.mesh import Mesh
 from femtoolkit.mesh.node import Node
+from femtoolkit.mesh.quad_element import QuadElement2D
 from femtoolkit.mesh.truss_element import TrussElement2D
 
 __all__ = [
@@ -15,5 +16,6 @@ __all__ = [
     "FrameElement2D",
     "Mesh",
     "Node",
+    "QuadElement2D",
     "TrussElement2D",
 ]

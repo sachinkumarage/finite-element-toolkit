@@ -11,6 +11,7 @@ from femtoolkit.analysis.stiffness import (
     cst_element_stiffness,
     frame_element_stiffness_2d,
     frame_element_stiffness_local,
+    quad_element_stiffness,
     truss_element_stiffness_2d,
 )
 from femtoolkit.continuum import plane_stress_matrix, triangle_strain_displacement_matrix
@@ -427,3 +428,92 @@ def test_cst_stiffness_invalid_area_raises(area: float) -> None:
 
     with pytest.raises(ValidationError):
         cst_element_stiffness(thickness=0.01, area=area, b_matrix=b_matrix, d_matrix=d_matrix)
+
+
+# --- 4-node bilinear quadrilateral (Q4) element (Version 7) ---
+
+UNIT_SQUARE_X = (0.0, 1.0, 1.0, 0.0)
+UNIT_SQUARE_Y = (0.0, 0.0, 1.0, 1.0)
+
+
+def test_quad_stiffness_shape_and_symmetry() -> None:
+    d_matrix = plane_stress_matrix(youngs_modulus=200e9, poisson_ratio=0.3)
+
+    stiffness = quad_element_stiffness(
+        UNIT_SQUARE_X, UNIT_SQUARE_Y, thickness=0.01, d_matrix=d_matrix
+    )
+
+    assert stiffness.shape == (8, 8)
+    assert_allclose(stiffness, stiffness.T)
+
+
+def test_quad_stiffness_scales_linearly_with_thickness() -> None:
+    d_matrix = plane_stress_matrix(youngs_modulus=200e9, poisson_ratio=0.3)
+
+    k_t1 = quad_element_stiffness(UNIT_SQUARE_X, UNIT_SQUARE_Y, thickness=1.0, d_matrix=d_matrix)
+    k_t2 = quad_element_stiffness(UNIT_SQUARE_X, UNIT_SQUARE_Y, thickness=2.0, d_matrix=d_matrix)
+
+    assert_allclose(k_t2, 2.0 * k_t1)
+
+
+def test_quad_stiffness_scales_linearly_with_youngs_modulus() -> None:
+    d_e1 = plane_stress_matrix(youngs_modulus=1.0, poisson_ratio=0.3)
+    d_e2 = plane_stress_matrix(youngs_modulus=2.0, poisson_ratio=0.3)
+
+    k_e1 = quad_element_stiffness(UNIT_SQUARE_X, UNIT_SQUARE_Y, thickness=1.0, d_matrix=d_e1)
+    k_e2 = quad_element_stiffness(UNIT_SQUARE_X, UNIT_SQUARE_Y, thickness=1.0, d_matrix=d_e2)
+
+    assert_allclose(k_e2, 2.0 * k_e1)
+
+
+def test_quad_stiffness_has_exactly_three_rigid_body_modes() -> None:
+    """An unconstrained 2D element has 3 rigid-body modes (2 translation,
+    1 rotation): K must be positive semidefinite with exactly 3
+    (near-)zero eigenvalues out of 8, and every other eigenvalue strictly
+    positive.
+    """
+    d_matrix = plane_stress_matrix(youngs_modulus=200e9, poisson_ratio=0.3)
+
+    stiffness = quad_element_stiffness(
+        UNIT_SQUARE_X, UNIT_SQUARE_Y, thickness=0.01, d_matrix=d_matrix
+    )
+
+    eigenvalues = np.sort(np.linalg.eigvalsh(stiffness))
+    tolerance = 1e-6 * np.max(np.abs(eigenvalues))
+    assert np.all(eigenvalues > -tolerance)
+    near_zero_count = np.sum(np.abs(eigenvalues) < max(tolerance, 1e-3))
+    assert near_zero_count == 3
+    assert np.all(eigenvalues[3:] > 1e-3)
+
+
+def test_quad_stiffness_symmetric_for_square_reduces_x_y_coupling() -> None:
+    """A square element under plane stress has equal stiffness in X and Y
+    by symmetry: the (0,0) [node1 ux] and (1,1) [node1 uy] diagonal
+    entries must match.
+    """
+    d_matrix = plane_stress_matrix(youngs_modulus=200e9, poisson_ratio=0.3)
+
+    stiffness = quad_element_stiffness(
+        UNIT_SQUARE_X, UNIT_SQUARE_Y, thickness=0.01, d_matrix=d_matrix
+    )
+
+    assert_allclose(stiffness[0, 0], stiffness[1, 1])
+
+
+@pytest.mark.parametrize("thickness", [0.0, -0.01, float("nan"), float("inf")])
+def test_quad_stiffness_invalid_thickness_raises(thickness: float) -> None:
+    d_matrix = plane_stress_matrix(youngs_modulus=200e9, poisson_ratio=0.3)
+
+    with pytest.raises(ValidationError):
+        quad_element_stiffness(UNIT_SQUARE_X, UNIT_SQUARE_Y, thickness=thickness, d_matrix=d_matrix)
+
+
+def test_quad_stiffness_rejects_degenerate_geometry() -> None:
+    from femtoolkit.exceptions import DegenerateElementError
+
+    d_matrix = plane_stress_matrix(youngs_modulus=200e9, poisson_ratio=0.3)
+    collinear_x = (0.0, 1.0, 2.0, 3.0)
+    collinear_y = (0.0, 0.0, 0.0, 0.0)
+
+    with pytest.raises(DegenerateElementError):
+        quad_element_stiffness(collinear_x, collinear_y, thickness=0.01, d_matrix=d_matrix)

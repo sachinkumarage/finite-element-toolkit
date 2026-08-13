@@ -1,10 +1,13 @@
-"""Tests for the CST strain-displacement matrix (femtoolkit.continuum.strain)."""
+"""Tests for the toolkit's strain-displacement matrices (femtoolkit.continuum.strain)."""
 
 import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 
+from femtoolkit.continuum.jacobian import physical_shape_function_derivatives
+from femtoolkit.continuum.shape_functions import quad_shape_function_derivatives
 from femtoolkit.continuum.strain import (
+    quad_strain_displacement_matrix,
     strain_from_displacements,
     triangle_strain_displacement_matrix,
 )
@@ -110,3 +113,64 @@ def test_constant_strain_field_is_recovered_exactly() -> None:
 def test_degenerate_triangle_raises(triangle: tuple[float, ...]) -> None:
     with pytest.raises(DegenerateElementError):
         triangle_strain_displacement_matrix(*triangle)
+
+
+# --- Q4 strain-displacement matrix (Version 7) ---
+
+UNIT_SQUARE_X = (0.0, 1.0, 1.0, 0.0)
+UNIT_SQUARE_Y = (0.0, 0.0, 1.0, 1.0)
+
+
+def test_quad_b_matrix_shape() -> None:
+    dn_dxi, dn_deta = quad_shape_function_derivatives(0.0, 0.0)
+    dn_dx, dn_dy, _ = physical_shape_function_derivatives(
+        dn_dxi, dn_deta, UNIT_SQUARE_X, UNIT_SQUARE_Y
+    )
+    b_matrix = quad_strain_displacement_matrix(dn_dx, dn_dy)
+
+    assert b_matrix.shape == (3, 8)
+
+
+def test_quad_b_matrix_column_layout() -> None:
+    """Column 2*i is node i's ux contribution; column 2*i+1 is its uy contribution."""
+    dn_dx = [1.0, 2.0, 3.0, 4.0]
+    dn_dy = [5.0, 6.0, 7.0, 8.0]
+
+    b_matrix = quad_strain_displacement_matrix(dn_dx, dn_dy)
+
+    assert_allclose(b_matrix[0, :], [1.0, 0.0, 2.0, 0.0, 3.0, 0.0, 4.0, 0.0])
+    assert_allclose(b_matrix[1, :], [0.0, 5.0, 0.0, 6.0, 0.0, 7.0, 0.0, 8.0])
+    assert_allclose(b_matrix[2, :], [5.0, 1.0, 6.0, 2.0, 7.0, 3.0, 8.0, 4.0])
+
+
+def test_quad_constant_strain_field_is_recovered_at_every_gauss_point() -> None:
+    """Even though Q4's B matrix varies with (xi, eta), a purely linear
+    displacement field u=ax+by, v=cx+dy must still give the exact constant
+    strain [a, d, b+c] at *every* point in the element -- the foundation
+    of the Q4 patch test (a linear field is a special case of bilinear).
+    """
+    a, b, c, d = 0.002, 0.001, -0.0015, 0.0025
+    node_coords = [(0.0, 0.0), (2.0, 0.0), (2.5, 1.5), (0.3, 1.2)]  # a general quad
+
+    def u(x: float, y: float) -> float:
+        return a * x + b * y
+
+    def v(x: float, y: float) -> float:
+        return c * x + d * y
+
+    displacements = []
+    for x, y in node_coords:
+        displacements.extend([u(x, y), v(x, y)])
+
+    x_coords = [p[0] for p in node_coords]
+    y_coords = [p[1] for p in node_coords]
+
+    for xi, eta in [(0.0, 0.0), (-0.6, 0.4), (0.9, -0.9), (0.5, 0.5)]:
+        dn_dxi, dn_deta = quad_shape_function_derivatives(xi, eta)
+        dn_dx, dn_dy, _ = physical_shape_function_derivatives(
+            dn_dxi, dn_deta, x_coords, y_coords
+        )
+        b_matrix = quad_strain_displacement_matrix(dn_dx, dn_dy)
+        strain = strain_from_displacements(b_matrix, displacements)
+
+        assert_allclose(strain, [a, d, b + c], atol=1e-10)

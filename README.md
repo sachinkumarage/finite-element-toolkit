@@ -2,7 +2,7 @@
 
 An open-source Python toolkit for developing finite element analysis (FEA) capabilities, built incrementally as a series of versioned milestones.
 
-**This is the Version 6 release.** Version 1 established the project's architecture and core domain model. Version 2 added the basic mathematical foundation for FEA. Version 3 turned that into a validated **1D structural analysis** capability (a bar element, `StaticLinearAnalysis`, and results). Version 4 extended the same analysis workflow to **2D truss structures**: two translational DOFs per node, a `TrussElement2D` transformed from local to global coordinates via its direction cosines, and X/Y loads, constraints, displacements, reactions, and member forces. Version 5 added **2D Euler-Bernoulli beam and frame analysis**: a rotational DOF per node, a `FrameElement2D` that resists axial force, shear force, and bending moment, and per-element shear/moment/bending-stress results. Version 6 introduces the toolkit's first true **2D continuum element**: a `CSTElement2D` (3-node constant strain triangle) representing a finite *area* of material rather than a line member, with plane stress/strain constitutive models, a strain-displacement (`B`) matrix, and von Mises/principal stress recovery. It does **not** yet contain quadrilateral or higher-order continuum elements, 3D beams, Timoshenko beams, plate, shell, or 3D solid elements, or nonlinear/dynamic analysis, or visualization.
+**This is the Version 7 release.** Version 1 established the project's architecture and core domain model. Version 2 added the basic mathematical foundation for FEA. Version 3 turned that into a validated **1D structural analysis** capability (a bar element, `StaticLinearAnalysis`, and results). Version 4 extended the same analysis workflow to **2D truss structures**: two translational DOFs per node, a `TrussElement2D` transformed from local to global coordinates via its direction cosines, and X/Y loads, constraints, displacements, reactions, and member forces. Version 5 added **2D Euler-Bernoulli beam and frame analysis**: a rotational DOF per node, a `FrameElement2D` that resists axial force, shear force, and bending moment, and per-element shear/moment/bending-stress results. Version 6 introduced the toolkit's first true **2D continuum element**: a `CSTElement2D` (3-node constant strain triangle) representing a finite *area* of material rather than a line member, with plane stress/strain constitutive models, a strain-displacement (`B`) matrix, and von Mises/principal stress recovery. Version 7 adds a second continuum element, `QuadElement2D` (4-node bilinear quadrilateral, "Q4"): natural coordinates, isoparametric mapping, the Jacobian, and 2x2 Gauss quadrature, needed because -- unlike the CST element -- a Q4 element's strain-displacement matrix has no closed form and varies within the element. It does **not** yet contain higher-order continuum elements, 3D beams, Timoshenko beams, plate, shell, or 3D solid elements, or nonlinear/dynamic analysis, or visualization.
 
 ## Current Features
 
@@ -62,6 +62,17 @@ An open-source Python toolkit for developing finite element analysis (FEA) capab
 - **New exception** — `DegenerateElementError`, raised for collinear, nearly collinear, or duplicate-coordinate triangle nodes
 - **Backward compatible** — `BarElement`, `TrussElement2D`, and `FrameElement2D` are untouched; assembly, the linear system, and the solver required no continuum-specific changes
 - **Engineering validation** — a patch test (exact constant-strain reproduction across three differently shaped triangles), an independently hand-derived plane-stress/plane-strain constitutive matrix and single-triangle stiffness matrix, a boundary-artifact-free uniaxial-stress recovery check, and a two-triangle assembly/equilibrium/continuity check (see [Version 6](#version-6) below)
+
+**Version 7 — 2D quadrilateral elements**
+
+- **Natural coordinates and bilinear shape functions** — `quad_shape_functions(xi, eta)` / `quad_shape_function_derivatives(xi, eta)`, defined on `[-1,1] x [-1,1]`, extending `femtoolkit.continuum.shape_functions`
+- **Isoparametric mapping and the Jacobian** (`femtoolkit.continuum.jacobian`) — `jacobian_matrix`, `jacobian_determinant`, `inverse_jacobian`, and `physical_shape_function_derivatives`, converting natural-coordinate shape function derivatives to physical (`x`, `y`) ones
+- **2x2 Gauss quadrature** (`femtoolkit.continuum.gauss`) — the four points and unit weights needed because a Q4 element's stiffness integral has no closed form (unlike CST's)
+- **Q4 element** — `QuadElement2D`, a four-node, two-DOF-per-node continuum element (`ux`, `uy` only) with an 8x8 stiffness matrix assembled by numerically integrating `Ke = integral(t*Bᵀ*D*B) dA` over the four Gauss points; node order is fixed counter-clockwise (unlike CST, a general quadrilateral has no single "signed area" to normalize clockwise input against)
+- **Representative strain/stress** — since a Q4 element's strain varies within the element (unlike CST's constant strain), `element_strain`/`element_stress`/`element_von_mises`/`element_principal_stresses` report the value at the element's natural-coordinate center
+- **Zero wiring changes** — `QuadElement2D` satisfies the exact same `AssemblableElement`/`ContinuumElement` protocols introduced in Version 6, so `StaticLinearAnalysis`, `AnalysisResult`, assembly, and the solver required **no** Version 7-specific code at all
+- **Backward compatible** — `BarElement`, `TrussElement2D`, `FrameElement2D`, and `CSTElement2D` are untouched
+- **Engineering validation** — a patch test (exact constant-strain reproduction across three differently shaped quadrilaterals, proving a linear field is an exact special case of the bilinear interpolation), a single-element uniaxial-tension case cross-checked against a from-scratch independent stiffness re-derivation, and a two-element assembly/equilibrium/continuity check (see [Version 7](#version-7) below)
 
 ## Installation
 
@@ -253,6 +264,39 @@ result = analysis.solve()
 
 print(result.element_strain(1))  # [5e-06, -1.5e-06, 0.0] -- [epsilon_x, epsilon_y, gamma_xy]
 print(result.element_stress(1))  # [1e+06, ~0.0, ~0.0] Pa -- [sigma_x, sigma_y, tau_xy]
+print(result.element_von_mises(1))  # 1e+06 Pa
+```
+
+Solving a single Q4 continuum element with Version 7 (see [Version 7](#version-7) below for the theory):
+
+```python
+from femtoolkit.analysis import BoundaryCondition, NodalLoad, StaticLinearAnalysis, TranslationDOF
+from femtoolkit.materials import LinearElastic2D
+from femtoolkit.mesh import Mesh, Node, QuadElement2D
+
+material = LinearElastic2D(youngs_modulus=200e9, poisson_ratio=0.3, formulation="plane_stress")
+node_1 = Node(id=1, x=0.0, y=0.0, z=0.0)
+node_2 = Node(id=2, x=1.0, y=0.0, z=0.0)
+node_3 = Node(id=3, x=1.0, y=1.0, z=0.0)
+node_4 = Node(id=4, x=0.0, y=1.0, z=0.0)
+quad = QuadElement2D(id=1, nodes=(node_1, node_2, node_3, node_4), material=material, thickness=0.01)
+
+mesh = Mesh()
+mesh.add_node(node_1)
+mesh.add_node(node_2)
+mesh.add_node(node_3)
+mesh.add_node(node_4)
+mesh.add_element(quad)
+
+analysis = StaticLinearAnalysis(mesh)
+analysis.add_boundary_condition(BoundaryCondition(node_id=1, dof=TranslationDOF.X, value=0.0))
+analysis.add_boundary_condition(BoundaryCondition(node_id=1, dof=TranslationDOF.Y, value=0.0))
+analysis.add_boundary_condition(BoundaryCondition(node_id=4, dof=TranslationDOF.X, value=0.0))
+analysis.add_load(NodalLoad(node_id=2, dof=TranslationDOF.X, value=5000.0))
+result = analysis.solve()
+
+print(result.element_strain(1))  # [5e-06, -1.5e-06, ~0.0] -- at the element's natural-coordinate center
+print(result.element_stress(1))  # [1e+06, ~0.0, ~0.0] Pa
 print(result.element_von_mises(1))  # 1e+06 Pa
 ```
 
@@ -642,6 +686,82 @@ Five validation cases in `tests/validation/`:
 
 Version 6 does not include quadrilateral elements, 6-node (quadratic) triangles, higher-order elements, 3D solid elements, nonlinear material models, plasticity, hyperelasticity, large deformation, dynamic analysis, modal analysis, buckling, contact, fracture, adaptive meshing, automatic mesh generation, mesh refinement, or visualization. See the [Roadmap](#roadmap).
 
+## Version 7
+
+Version 6's CST element has a closed-form stiffness matrix only because its shape functions are linear -- its `B` matrix is constant, so `Ke = t*A*Bᵀ*D*B` needs no integration. Version 7 introduces the 4-node bilinear quadrilateral (**Q4**), whose shape functions are *bilinear*: `B` varies from point to point within the element, and the stiffness integral has no closed form. This is the central new mathematical machinery of Version 7: **natural coordinates**, the **isoparametric Jacobian**, and **numerical (Gauss) integration** -- none of which the CST element needed.
+
+**Engineering assumptions:** linear elastic, isotropic material; small deformation; small strain; static loading; a constant thickness per element; the same consistent SI unit system as every prior version; engineering shear strain (`gamma_xy = du/dy + dv/dx`), matching Version 6.
+
+### Natural coordinates and bilinear shape functions
+
+A Q4 element's shape functions are defined on a natural-coordinate square, `xi, eta in [-1, 1]`, not directly on the element's physical coordinates:
+
+```text
+Node 1: (xi,eta) = (-1,-1)      Node 4 ------- Node 3
+Node 2: (xi,eta) = ( 1,-1)        |               |
+Node 3: (xi,eta) = ( 1, 1)        |               |
+Node 4: (xi,eta) = (-1, 1)      Node 1 ------- Node 2
+
+N1 = (1-xi)(1-eta)/4
+N2 = (1+xi)(1-eta)/4
+N3 = (1+xi)(1+eta)/4
+N4 = (1-xi)(1+eta)/4
+```
+
+Each `Ni` is *bilinear* -- linear in `xi` and `eta` separately, but containing an `xi*eta` cross term -- so, unlike CST, its gradient is **not** constant: a Q4 element's strain varies within the element. `N1+N2+N3+N4 = 1` everywhere (partition of unity) and `Ni(node_j) = 1` if `i==j` else `0` (the nodal property), both verified in `tests/test_shape_functions.py`.
+
+### Isoparametric mapping and the Jacobian
+
+An isoparametric element uses the *same* shape functions for both geometry and displacement: `x(xi,eta) = sum(Ni*xi_coord)`, `y(xi,eta) = sum(Ni*yi_coord)`. The **Jacobian matrix** relates natural-coordinate derivatives (where the shape functions are simple) to physical-coordinate derivatives (where strain is defined):
+
+```text
+J =
+[ dx/dxi   dy/dxi  ]
+[ dx/deta  dy/deta ]
+
+dNi/dx, dNi/dy  =  J^-1 @ [ dNi/dxi, dNi/deta ]
+```
+
+`det(J)` is the area-scaling factor between the natural-coordinate square and the physical element. **Node order is fixed counter-clockwise**: unlike CST (which accepts either winding order via a signed/absolute-area distinction), a Q4 element has no single "signed area" for a general quadrilateral to normalize clockwise input against -- clockwise or self-intersecting node order gives a negative `det(J)` and is rejected with `DegenerateElementError`.
+
+### 2x2 Gauss integration
+
+```text
+Ke = integral( B^T D B t ) dA  =  integral( B^T D B t det(J) ) dxi deta
+   ~= sum over 4 points of: weight * t * B(xi,eta)^T D B(xi,eta) det(J(xi,eta))
+```
+
+The four points, `(+/-1/sqrt(3), +/-1/sqrt(3))`, each with weight `1.0`, are the standard 2-point-per-direction Gauss-Legendre rule -- exact for the bilinear geometric mapping, and the standard choice for a 4-node quadrilateral (`femtoolkit.continuum.gauss`).
+
+### Q4 element and stiffness matrix
+
+`QuadElement2D` connects four nodes (DOFs ordered `[ux1,uy1,ux2,uy2,ux3,uy3,ux4,uy4]`, 8 total), a `LinearElastic2D` material, and a `thickness`, giving an 8x8 stiffness matrix (`femtoolkit.analysis.stiffness.quad_element_stiffness`) that scales linearly with thickness and Young's modulus, and is positive semidefinite with exactly 3 zero eigenvalues (2 translation + 1 rotation rigid-body mode) before boundary conditions.
+
+### Strain, stress, and representative reporting
+
+```text
+epsilon = B(xi,eta) @ d        (varies with position, unlike CST)
+sigma = D @ epsilon
+```
+
+Since a Q4 element's strain is generally different at every point, `element_strain`/`element_stress`/`element_von_mises`/`element_principal_stresses` report the value at the element's natural-coordinate center (`xi=eta=0`) as a single representative value -- the standard simplified reporting convention (reporting all four Gauss-point values separately is out of scope for this version).
+
+### Zero wiring changes
+
+`QuadElement2D` satisfies the exact same `AssemblableElement` and `ContinuumElement` protocols introduced in Version 6 -- `strain_from_dofs`/`stress_from_dofs` returning a 3-element array, plus `von_mises_from_dofs` and `principal_stresses_from_dofs`. `StaticLinearAnalysis`, `AnalysisResult`, assembly, and the solver required **zero** Version 7-specific code: a mesh of `QuadElement2D` instances is assembled and solved through the exact same path as a mesh of `CSTElement2D` instances, confirming the Version 6 protocol split was the right generalization rather than a CST-specific one.
+
+### Engineering validation
+
+Three validation cases in `tests/validation/`:
+
+- **Patch test** (`test_quad_patch.py`) — a linear displacement field `u=ax+by, v=cx+dy` (a special case of the bilinear interpolation with a zero `xi*eta` coefficient) prescribed at every node must give the exact constant strain `[a, d, b+c]`, on three differently shaped quadrilaterals
+- **Single element** (`test_single_quad.py`) — a unit-square Q4 element under uniaxial tension recovers the exact analytical stress state, and its 8x8 stiffness matrix is independently cross-checked against a from-scratch NumPy re-derivation of the isoparametric formula (not calling `femtoolkit.continuum` or `femtoolkit.analysis.stiffness`)
+- **Two-element plate** (`test_two_quad_plate.py`) — a rectangle split into two Q4 elements under a statically-equivalent uniform edge traction; validates assembly, displacement continuity at the shared edge, reaction equilibrium, and that both elements recover the identical uniform stress state
+
+### Limitations
+
+Version 7 does not include higher-order (8-node or 9-node) quadrilaterals, 3D solid elements (tetrahedral, hexahedral), nonlinear material models, plasticity, dynamic analysis, contact, fracture, or visualization. See the [Roadmap](#roadmap).
+
 ## Project Structure
 
 ```text
@@ -649,11 +769,13 @@ finite-element-toolkit/
 ├── src/femtoolkit/
 │   ├── materials/          # Material, LinearElastic2D (2D constitutive model)
 │   ├── mesh/               # Node, Element, BarElement, TrussElement2D,
-│   │                       # FrameElement2D, CSTElement2D, Mesh
+│   │                       # FrameElement2D, CSTElement2D, QuadElement2D, Mesh
 │   ├── sections/           # CrossSection
 │   ├── continuum/          # Reusable 2D continuum math: geometry, shape
-│   │                       # functions, strain-displacement (B) matrix,
-│   │                       # plane stress/strain constitutive (D) matrices,
+│   │                       # functions (triangle + Q4), isoparametric
+│   │                       # Jacobian, 2x2 Gauss quadrature,
+│   │                       # strain-displacement (B) matrix, plane
+│   │                       # stress/strain constitutive (D) matrices,
 │   │                       # stress/von Mises/principal stress recovery
 │   ├── analysis/           # DOFs (incl. RotationDOF), boundary conditions,
 │   │                       # loads, stiffness matrix, transformation
@@ -706,15 +828,17 @@ python examples/portal_frame.py               # Version 5: two-column, one-beam 
 python examples/single_cst_element.py         # Version 6: single CST triangle under uniaxial tension
 python examples/two_triangle_plate.py         # Version 6: two-triangle plate, assembly + equilibrium
 python examples/cst_patch_test.py             # Version 6: constant-strain patch test
+python examples/single_quad_element.py        # Version 7: single Q4 element under uniaxial tension
+python examples/two_element_plate.py          # Version 7: two-Q4-element plate, assembly + equilibrium
+python examples/quad_patch_test.py            # Version 7: Q4 constant-strain patch test
 ```
 
 ## Roadmap
 
 Future versions will build a more complete FEA solver on top of this foundation. None of the following is implemented yet:
 
-- **Version 7** — 2D quadrilateral elements: a 4-node bilinear element in natural coordinates `(xi, eta)`, the Jacobian transformation, and Gauss quadrature numerical integration -- the key new mathematical concepts a constant-strain triangle does not need
-- **Version 8** — Advanced mesh and visualization
-- **Later** — 3D elements, GUI, reporting, and more
+- **Version 8** — Advanced mesh (automatic meshing, refinement) and visualization
+- **Later** — 3D elements, higher-order continuum elements, nonlinear analysis, GUI, reporting, and more
 
 ## License
 
