@@ -2,7 +2,7 @@
 
 An open-source Python toolkit for developing finite element analysis (FEA) capabilities, built incrementally as a series of versioned milestones.
 
-**This is the Version 7 release.** Version 1 established the project's architecture and core domain model. Version 2 added the basic mathematical foundation for FEA. Version 3 turned that into a validated **1D structural analysis** capability (a bar element, `StaticLinearAnalysis`, and results). Version 4 extended the same analysis workflow to **2D truss structures**: two translational DOFs per node, a `TrussElement2D` transformed from local to global coordinates via its direction cosines, and X/Y loads, constraints, displacements, reactions, and member forces. Version 5 added **2D Euler-Bernoulli beam and frame analysis**: a rotational DOF per node, a `FrameElement2D` that resists axial force, shear force, and bending moment, and per-element shear/moment/bending-stress results. Version 6 introduced the toolkit's first true **2D continuum element**: a `CSTElement2D` (3-node constant strain triangle) representing a finite *area* of material rather than a line member, with plane stress/strain constitutive models, a strain-displacement (`B`) matrix, and von Mises/principal stress recovery. Version 7 adds a second continuum element, `QuadElement2D` (4-node bilinear quadrilateral, "Q4"): natural coordinates, isoparametric mapping, the Jacobian, and 2x2 Gauss quadrature, needed because -- unlike the CST element -- a Q4 element's strain-displacement matrix has no closed form and varies within the element. It does **not** yet contain higher-order continuum elements, 3D beams, Timoshenko beams, plate, shell, or 3D solid elements, or nonlinear/dynamic analysis, or visualization.
+**This is the Version 8 release.** Version 1 established the project's architecture and core domain model. Version 2 added the basic mathematical foundation for FEA. Version 3 turned that into a validated **1D structural analysis** capability (a bar element, `StaticLinearAnalysis`, and results). Version 4 extended the same analysis workflow to **2D truss structures**: two translational DOFs per node, a `TrussElement2D` transformed from local to global coordinates via its direction cosines, and X/Y loads, constraints, displacements, reactions, and member forces. Version 5 added **2D Euler-Bernoulli beam and frame analysis**: a rotational DOF per node, a `FrameElement2D` that resists axial force, shear force, and bending moment, and per-element shear/moment/bending-stress results. Version 6 introduced the toolkit's first true **2D continuum element**: a `CSTElement2D` (3-node constant strain triangle) representing a finite *area* of material rather than a line member, with plane stress/strain constitutive models, a strain-displacement (`B`) matrix, and von Mises/principal stress recovery. Version 7 added a second continuum element, `QuadElement2D` (4-node bilinear quadrilateral, "Q4"): natural coordinates, isoparametric mapping, the Jacobian, and 2x2 Gauss quadrature, needed because -- unlike the CST element -- a Q4 element's strain-displacement matrix has no closed form and varies within the element. Version 8 adds **automatic structured 2D mesh generation**: `create_quad_mesh`/`create_triangular_mesh` turn a rectangular domain and a subdivision count into a fully connected, correctly oriented mesh, plus whole-mesh validation, shape-quality metrics, and a JSON export/import foundation. It does **not** yet contain unstructured or CAD-driven meshing, adaptive refinement, higher-order continuum elements, 3D beams, Timoshenko beams, plate, shell, or 3D solid elements, or nonlinear/dynamic analysis, or visualization.
 
 ## Current Features
 
@@ -73,6 +73,17 @@ An open-source Python toolkit for developing finite element analysis (FEA) capab
 - **Zero wiring changes** — `QuadElement2D` satisfies the exact same `AssemblableElement`/`ContinuumElement` protocols introduced in Version 6, so `StaticLinearAnalysis`, `AnalysisResult`, assembly, and the solver required **no** Version 7-specific code at all
 - **Backward compatible** — `BarElement`, `TrussElement2D`, `FrameElement2D`, and `CSTElement2D` are untouched
 - **Engineering validation** — a patch test (exact constant-strain reproduction across three differently shaped quadrilaterals, proving a linear field is an exact special case of the bilinear interpolation), a single-element uniaxial-tension case cross-checked against a from-scratch independent stiffness re-derivation, and a two-element assembly/equilibrium/continuity check (see [Version 7](#version-7) below)
+
+**Version 8 — 2D mesh generation**
+
+- **Structured mesh generators** (`femtoolkit.mesh.generator`) — `create_quad_mesh(width, height, nx, ny, material, thickness)` and `create_triangular_mesh(..., diagonal="forward"|"backward")` turn a rectangular domain into a fully connected `Mesh` of `QuadElement2D` or `CSTElement2D` elements, with deterministic row-major node numbering and left-to-right/bottom-to-top element numbering (both documented in the module)
+- **Kept separate from `Mesh`** — generation logic lives in its own module rather than as `Mesh` methods, matching the existing separation between domain containers and the math/algorithms that populate them
+- **Self-validating** — both generators call `validate_mesh` on their own output before returning, so they can never hand back a degenerate or inverted mesh
+- **Mesh validation** (`femtoolkit.mesh.validation`) — `validate_mesh(mesh)` checks for duplicate node coordinates (a new `DuplicateNodeCoordinatesError`) and element/geometry integrity; duplicate IDs and missing node references were already caught by `Mesh.add_node`/`add_element`, and degenerate/inverted element geometry was already caught by `CSTElement2D`/`QuadElement2D` at construction -- Version 8 closes the one gap fail-fast construction cannot catch on its own
+- **Mesh quality metrics** (`femtoolkit.mesh.quality`) — per-element area, min/max edge length, aspect ratio, equiangle skewness, and (for Q4) Jacobian determinant, via `Mesh.element_area()`/`Mesh.element_quality()`; a whole-mesh `Mesh.quality_summary()` aggregates node/element counts, area and edge-length ranges, and min/max/average quality
+- **JSON mesh export/import** (`femtoolkit.mesh.serialization`) — `export_mesh`/`import_mesh` and the underlying `mesh_to_dict`/`mesh_from_dict`, storing each element's own material and thickness for a fully self-contained round trip
+- **Mesh refinement through subdivision** — increasing `nx`/`ny` densifies a mesh over the same domain; no adaptive or error-based refinement (out of scope for this version)
+- **Reuses the existing solver unchanged** — a generated mesh is passed straight into `StaticLinearAnalysis` exactly like a hand-built one; no Version 8-specific solver code exists (see [Version 8](#version-8) below)
 
 ## Installation
 
@@ -298,6 +309,36 @@ result = analysis.solve()
 print(result.element_strain(1))  # [5e-06, -1.5e-06, ~0.0] -- at the element's natural-coordinate center
 print(result.element_stress(1))  # [1e+06, ~0.0, ~0.0] Pa
 print(result.element_von_mises(1))  # 1e+06 Pa
+```
+
+Generating and solving a mesh automatically with Version 8 (see [Version 8](#version-8) below for the theory):
+
+```python
+from femtoolkit.materials import LinearElastic2D
+from femtoolkit.mesh import create_quad_mesh
+
+material = LinearElastic2D(youngs_modulus=200e9, poisson_ratio=0.3, formulation="plane_stress")
+mesh = create_quad_mesh(width=2.0, height=1.0, nx=4, ny=2, material=material, thickness=0.01)
+
+print(len(mesh.nodes), len(mesh.elements))  # 15 8
+print(sum(mesh.element_area(e.id) for e in mesh.elements))  # 2.0 -- matches width * height
+
+summary = mesh.quality_summary()
+print(summary.average_quality)  # 1.0 -- a regular grid of squares is ideal shape
+
+# The generated mesh works with the existing solver unchanged:
+from femtoolkit.analysis import BoundaryCondition, NodalLoad, StaticLinearAnalysis, TranslationDOF
+
+analysis = StaticLinearAnalysis(mesh)
+for node in mesh.nodes:
+    if node.x == 0.0:
+        analysis.add_boundary_condition(BoundaryCondition(node.id, TranslationDOF.X, 0.0))
+analysis.add_boundary_condition(BoundaryCondition(1, TranslationDOF.Y, 0.0))
+for node in mesh.nodes:
+    if node.x == 2.0:
+        analysis.add_load(NodalLoad(node.id, TranslationDOF.X, 10000.0 / 3))
+result = analysis.solve()
+print(result.element_stress(1)[0])  # ~1e+06 Pa
 ```
 
 ## Version 2
@@ -762,6 +803,100 @@ Three validation cases in `tests/validation/`:
 
 Version 7 does not include higher-order (8-node or 9-node) quadrilaterals, 3D solid elements (tetrahedral, hexahedral), nonlinear material models, plasticity, dynamic analysis, contact, fracture, or visualization. See the [Roadmap](#roadmap).
 
+## Version 8
+
+Every mesh through Version 7 was built by hand: one `Node` and one `CSTElement2D`/`QuadElement2D` call at a time. That does not scale past a handful of elements. Version 8 adds **structured 2D mesh generation** -- turning a rectangular domain and a subdivision count into a fully connected, correctly oriented mesh automatically -- plus the supporting infrastructure a generated mesh needs: whole-mesh validation, shape-quality metrics, and a JSON export/import foundation.
+
+```text
+Geometry (width, height, nx, ny)
+    v
+Mesh Generator
+    v
+Nodes + Elements
+    v
+Existing FEM solver (unchanged)
+```
+
+### Why meshing matters
+
+A finite element mesh divides a continuous physical domain into a finite number of simply shaped pieces (elements) so the continuum equations can be approximated by a solvable linear system. **Mesh density** (how many elements) trades accuracy for computational cost: more elements generally resolve the true stress/strain field more closely, at the cost of a larger system to assemble and solve. **Element quality** -- how close each element's shape is to "ideal" -- matters independently of density: a mesh with enough elements but poorly shaped ones can still give inaccurate or numerically unstable results (see below).
+
+### Structured mesh
+
+Version 8 generates a **structured** mesh: a regular grid of identically-arranged cells, each becoming one Q4 element or two CST elements. This is deliberately simple -- no CAD geometry import, no unstructured (e.g. Delaunay) triangulation, no adaptive refinement -- and is the natural scope for a rectangular domain. Its advantage is predictability: node and element numbering are fully deterministic (see below), which makes generated meshes easy to reason about and to target with boundary conditions (e.g. "every node with `x == 0`"). Its limitation is equally direct: it only covers domains that decompose into a regular grid -- an arbitrary or curved boundary needs unstructured meshing, out of scope for this version.
+
+### Node and element numbering
+
+**Node numbering** is row-major, bottom-to-top, left-to-right, 1-indexed: `node_id(row, col) = row * (nx+1) + col + 1`. For `nx=2, ny=1`:
+
+```text
+Node4 -------- Node5 -------- Node6      row 1 (top)
+  |              |              |
+  |              |              |
+Node1 -------- Node2 -------- Node3      row 0 (bottom)
+```
+
+**Element numbering** is left-to-right within a row, then bottom-to-top across rows, 1-indexed: `element_id(row, col) = row*nx + col + 1` for Q4 (one element per cell), or `2*(row*nx + col) + 1`/`+2` for CST (two triangles per cell). Both are fully deterministic and reproducible -- generating the same mesh twice gives identical IDs and coordinates every time.
+
+### Connectivity and orientation
+
+Every generated element lists its nodes **counter-clockwise**, starting from its cell's bottom-left corner -- `QuadElement2D` requires this outright (see Version 7), and `CSTElement2D` accepts either winding but the generator always emits counter-clockwise for consistency. A **negative Jacobian determinant** (Q4) or **negative signed area** (CST) means the element's node order is inverted -- physically, the element would have negative area, which makes its stiffness matrix meaningless. The generator's cell-corner-based connectivity makes an inverted element structurally impossible to produce; both generators additionally call `validate_mesh()` on their own output as a final, explicit self-check before returning.
+
+### Triangular mesh: diagonal direction
+
+Splitting a cell into two CST elements requires choosing a diagonal:
+
+```text
+diagonal="forward" (bottom-left to top-right)     diagonal="backward" (bottom-right to top-left)
+
+top_left ------ top_right                          top_left ------ top_right
+   | \               |                                  |             /  |
+   |   \             |                                  |           /    |
+   |     \           |                                  |         /      |
+bottom_left ---- bottom_right                       bottom_left ---- bottom_right
+```
+
+The diagonal is fixed per mesh (uniform across every cell) -- per-cell adaptive diagonal selection is out of scope for this version.
+
+### Mesh validation
+
+Most validity checks happen **at construction time**, before an invalid object can exist: `Node` rejects non-finite coordinates, `Mesh.add_node`/`add_element` reject duplicate IDs and dangling node references, and `CSTElement2D`/`QuadElement2D` reject degenerate or inverted geometry. `validate_mesh()` (`femtoolkit.mesh.validation`) covers the one thing fail-fast construction cannot catch on its own: **duplicate node coordinates** -- two distinct node IDs placed at the same physical location, each individually valid, but geometrically wrong together -- raising the new `DuplicateNodeCoordinatesError`.
+
+### Mesh quality metrics
+
+For each continuum element, `Mesh.element_quality(element_id)` computes:
+
+```text
+aspect_ratio = max_edge_length / min_edge_length          (>= 1.0; 1.0 = square/equilateral)
+quality = min_edge_length / max_edge_length                (in (0,1]; 1.0 = best shape)
+skewness = max(
+    (theta_max - theta_ideal) / (180 - theta_ideal),
+    (theta_ideal - theta_min) / theta_ideal,
+)                                                            (equiangle skew, in [0,1]; 0 = ideal)
+```
+
+where `theta_ideal` is 90 degrees for a Q4 element or 60 degrees for a CST element. **Aspect ratio** approximates shape distortion via edge-length variation; for a rectangle it is exact, but for a general (non-rectangular) quadrilateral or non-equilateral triangle it does not fully capture skew independent of edge length -- a documented approximation, not a complete shape descriptor. **Why extremely elongated ("needle") elements are problematic**: their stiffness becomes very different in different directions, which can degrade solution accuracy and, in severe cases, harm the conditioning of the global stiffness matrix. `Mesh.quality_summary()` aggregates these across the whole mesh (node/element counts, area and edge-length ranges, min/max/average quality, and a count of elements with non-positive area -- expected to always be zero given fail-fast construction, retained as defense-in-depth).
+
+### JSON mesh export/import
+
+`export_mesh`/`import_mesh` (`femtoolkit.mesh.serialization`) write/read a lightweight, self-contained JSON format -- each element's own material and thickness are stored alongside it, so a round trip fully reconstructs the mesh. This is a foundation, not an industry format: no Abaqus INP, ANSYS, Gmsh, or VTK export (future-version scope), and only `CSTElement2D`/`QuadElement2D` elements are supported.
+
+### Mesh refinement
+
+Increasing `nx`/`ny` densifies a mesh over the same domain -- `coarse mesh -> finer mesh` through a larger subdivision count, nothing more. There is no adaptive or error-based refinement in this version: refinement is a modeling choice the caller makes up front, not something the mesh adjusts itself.
+
+### Material assignment stays separate from geometry
+
+The mesh generator never chooses or defaults a material -- `material` and `thickness` are required parameters the caller supplies, kept as data flowing *through* the generator rather than a decision the generator makes. This preserves the existing architecture's separation: `Geometry -> Mesh -> Elements -> Material assignment -> Analysis`, with material assignment happening exactly where it already did in Versions 6-7 (at element construction), not moved into the generator.
+
+### Reuses the existing solver, unchanged
+
+A mesh from `create_quad_mesh`/`create_triangular_mesh` is a plain `Mesh` of ordinary `QuadElement2D`/`CSTElement2D` elements -- `StaticLinearAnalysis`, `AnalysisResult`, assembly, and the solver required **zero** Version 8-specific code (see `examples/mesh_and_analysis.py`).
+
+### Limitations
+
+Version 8 does not include unstructured meshing, Delaunay triangulation, CAD geometry import, Gmsh integration, adaptive or error-based mesh refinement, 3D mesh generation, tetrahedral/hexahedral meshing, Abaqus/ANSYS/VTK export, or visualization. See the [Roadmap](#roadmap).
+
 ## Project Structure
 
 ```text
@@ -769,7 +904,11 @@ finite-element-toolkit/
 ├── src/femtoolkit/
 │   ├── materials/          # Material, LinearElastic2D (2D constitutive model)
 │   ├── mesh/               # Node, Element, BarElement, TrussElement2D,
-│   │                       # FrameElement2D, CSTElement2D, QuadElement2D, Mesh
+│   │                       # FrameElement2D, CSTElement2D, QuadElement2D, Mesh,
+│   │                       # generator.py (structured mesh generation),
+│   │                       # quality.py (shape-quality metrics),
+│   │                       # validation.py (whole-mesh checks),
+│   │                       # serialization.py (JSON export/import)
 │   ├── sections/           # CrossSection
 │   ├── continuum/          # Reusable 2D continuum math: geometry, shape
 │   │                       # functions (triangle + Q4), isoparametric
@@ -785,7 +924,8 @@ finite-element-toolkit/
 │   │                       # protocols, and the StaticLinearAnalysis workflow
 │   ├── results/            # AnalysisResult, FrameEndForces, FrameElementForces
 │   ├── units/               # SI unit constants
-│   ├── exceptions/          # Custom exception types (incl. DegenerateElementError)
+│   ├── exceptions/          # Custom exception types (incl. DegenerateElementError,
+│   │                       # DuplicateNodeCoordinatesError)
 │   ├── config.py             # Package metadata and defaults
 │   └── logging_config.py     # Package logger configuration
 ├── examples/                  # Runnable example scripts
@@ -831,14 +971,17 @@ python examples/cst_patch_test.py             # Version 6: constant-strain patch
 python examples/single_quad_element.py        # Version 7: single Q4 element under uniaxial tension
 python examples/two_element_plate.py          # Version 7: two-Q4-element plate, assembly + equilibrium
 python examples/quad_patch_test.py            # Version 7: Q4 constant-strain patch test
+python examples/generate_quad_mesh.py         # Version 8: automatic Q4 mesh generation + quality summary
+python examples/generate_tri_mesh.py          # Version 8: automatic CST mesh generation + quality summary
+python examples/mesh_and_analysis.py          # Version 8: generated mesh solved by the existing solver
 ```
 
 ## Roadmap
 
 Future versions will build a more complete FEA solver on top of this foundation. None of the following is implemented yet:
 
-- **Version 8** — Advanced mesh (automatic meshing, refinement) and visualization
-- **Later** — 3D elements, higher-order continuum elements, nonlinear analysis, GUI, reporting, and more
+- **Version 9** — Advanced mesh generation and boundary/load assignment: geometry entities, named boundary regions, boundary-condition assignment by geometry, distributed/surface loads, mesh refinement regions
+- **Later** — Unstructured/CAD-driven meshing, 3D elements, higher-order continuum elements, nonlinear analysis, GUI, visualization, reporting, and more
 
 ## License
 

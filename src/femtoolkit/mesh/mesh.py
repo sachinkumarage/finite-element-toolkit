@@ -1,18 +1,24 @@
 """Mesh container.
 
 This module defines :class:`Mesh`, a simple container that manages the
-nodes and elements of a finite element model. It provides only storage,
-retrieval, and referential-integrity validation; it does not generate,
-refine, or otherwise process geometry.
+nodes and elements of a finite element model. It provides storage,
+retrieval, referential-integrity validation, and (from Version 8) simple
+mesh-level queries -- element area and shape-quality metrics -- that
+delegate to :mod:`femtoolkit.mesh.quality`. It does not generate, refine,
+or otherwise process geometry; see :mod:`femtoolkit.mesh.generator` for
+structured mesh generation.
 """
 
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from femtoolkit.exceptions import DuplicateIDError, EntityNotFoundError, ValidationError
 from femtoolkit.mesh.node import Node
+
+if TYPE_CHECKING:
+    from femtoolkit.mesh.quality import ElementQuality, MeshQualitySummary
 
 
 @runtime_checkable
@@ -135,3 +141,59 @@ class Mesh:
     def elements(self) -> list[MeshElement]:
         """All elements currently in the mesh, in insertion order."""
         return list(self._elements.values())
+
+    def element_area(self, element_id: int) -> float:
+        """Return the physical area of a continuum (CST or Q4) element.
+
+        Args:
+            element_id: ID of the element to query.
+
+        Returns:
+            Element area, in square meters.
+
+        Raises:
+            EntityNotFoundError: If no element with the given ID exists.
+            ValidationError: If the element has no area concept (e.g. a
+                bar, truss, or frame element).
+        """
+        element = self.get_element(element_id)
+        area = getattr(element, "area", None)
+        if area is None:
+            raise ValidationError(
+                f"Element {element_id} ({type(element).__name__}) has no area; "
+                "only continuum elements (CST, Q4) do."
+            )
+        return area
+
+    def element_quality(self, element_id: int) -> ElementQuality:
+        """Return shape-quality metrics for a continuum (CST or Q4) element.
+
+        Args:
+            element_id: ID of the element to query.
+
+        Returns:
+            The element's :class:`~femtoolkit.mesh.quality.ElementQuality` metrics.
+
+        Raises:
+            EntityNotFoundError: If no element with the given ID exists.
+            ValidationError: If the element is not a continuum element.
+        """
+        # Imported locally: femtoolkit.mesh.quality imports Mesh (to type
+        # its mesh-level summary function), so a module-level import here
+        # would create a circular import between the two modules.
+        from femtoolkit.mesh.quality import compute_element_quality
+
+        return compute_element_quality(self.get_element(element_id))
+
+    def quality_summary(self) -> MeshQualitySummary:
+        """Return a whole-mesh shape-quality summary over its continuum elements.
+
+        Returns:
+            The mesh's :class:`~femtoolkit.mesh.quality.MeshQualitySummary`.
+
+        Raises:
+            ValidationError: If the mesh contains no CST or Q4 elements.
+        """
+        from femtoolkit.mesh.quality import compute_mesh_quality_summary
+
+        return compute_mesh_quality_summary(self)

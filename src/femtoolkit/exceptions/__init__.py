@@ -3,6 +3,7 @@
 from femtoolkit.exceptions.exceptions import (
     DegenerateElementError,
     DuplicateIDError,
+    DuplicateNodeCoordinatesError,
     EntityNotFoundError,
     FiniteElementToolkitError,
     InsufficientConstraintsError,
@@ -15,6 +16,7 @@ from femtoolkit.exceptions.exceptions import (
 __all__ = [
     "DegenerateElementError",
     "DuplicateIDError",
+    "DuplicateNodeCoordinatesError",
     "EntityNotFoundError",
     "FiniteElementToolkitError",
     "InsufficientConstraintsError",

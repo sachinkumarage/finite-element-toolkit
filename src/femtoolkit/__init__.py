@@ -22,16 +22,26 @@ stress/plane strain constitutive models
 (:class:`~femtoolkit.materials.linear_elastic_2d.LinearElastic2D`), a
 strain-displacement matrix, and von Mises/principal stress recovery, all
 built from the independently testable math in :mod:`femtoolkit.continuum`.
-Version 7 adds a second continuum element,
+Version 7 added a second continuum element,
 :class:`~femtoolkit.mesh.quad_element.QuadElement2D` (4-node bilinear
 quadrilateral, "Q4"): natural coordinates, isoparametric mapping, the
 Jacobian, and 2x2 Gauss quadrature -- needed because, unlike the CST
 element, a Q4 element's strain-displacement matrix has no closed form and
 varies within the element. It satisfies the same element protocols
 introduced in Version 6, so the solver required no Q4-specific code.
+Version 8 adds automatic structured 2D mesh generation
+(:mod:`femtoolkit.mesh.generator`): :func:`~femtoolkit.mesh.generator.create_quad_mesh`
+and :func:`~femtoolkit.mesh.generator.create_triangular_mesh` turn a
+rectangular domain into a fully connected, deterministically numbered
+mesh, alongside whole-mesh validation
+(:mod:`femtoolkit.mesh.validation`), shape-quality metrics
+(:mod:`femtoolkit.mesh.quality`), and a JSON export/import foundation
+(:mod:`femtoolkit.mesh.serialization`). Generated meshes work with the
+existing solver unchanged.
 
-The toolkit does not yet implement higher-order continuum elements, 3D
-beams, Timoshenko beams, plate, shell, or 3D solid elements, nonlinear or
+The toolkit does not yet implement unstructured or CAD-driven meshing,
+adaptive mesh refinement, higher-order continuum elements, 3D beams,
+Timoshenko beams, plate, shell, or 3D solid elements, nonlinear or
 dynamic analysis, or visualization.
 """
 

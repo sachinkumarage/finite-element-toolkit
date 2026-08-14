@@ -46,6 +46,18 @@ class DuplicateIDError(FiniteElementToolkitError):
     """
 
 
+class DuplicateNodeCoordinatesError(ValidationError):
+    """Raised when two distinct nodes in a mesh occupy the same physical location.
+
+    Unlike :class:`DuplicateIDError` (two nodes sharing the same *ID*),
+    this catches two nodes with *different* IDs placed at the same
+    ``(x, y, z)`` coordinates -- a geometric modeling error that
+    :meth:`~femtoolkit.mesh.mesh.Mesh.add_node` cannot detect on its own,
+    since each node ID is unique by construction. See
+    :func:`~femtoolkit.mesh.validation.validate_mesh`.
+    """
+
+
 class EntityNotFoundError(FiniteElementToolkitError):
     """Raised when a requested entity cannot be found in a container.
 
