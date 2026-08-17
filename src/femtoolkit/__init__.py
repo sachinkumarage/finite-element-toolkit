@@ -37,12 +37,28 @@ mesh, alongside whole-mesh validation
 (:mod:`femtoolkit.mesh.validation`), shape-quality metrics
 (:mod:`femtoolkit.mesh.quality`), and a JSON export/import foundation
 (:mod:`femtoolkit.mesh.serialization`). Generated meshes work with the
-existing solver unchanged.
+existing solver unchanged. Version 9 adds a lightweight 2D geometry
+foundation (:mod:`femtoolkit.geometry`): :class:`~femtoolkit.geometry.point.Point2D`,
+:class:`~femtoolkit.geometry.line.LineSegment2D`,
+:class:`~femtoolkit.geometry.rectangle.Rectangle`, and named
+:class:`~femtoolkit.geometry.boundary.BoundaryRegion` objects, plus
+:meth:`~femtoolkit.mesh.mesh.Mesh.nodes_on_boundary` for tolerance-based,
+coordinate-driven node selection and generic topological boundary-edge
+detection (:mod:`femtoolkit.mesh.edges`). Distributed surface tractions
+(:class:`~femtoolkit.analysis.distributed_load.DistributedLoad`) are
+converted to equivalent nodal forces via edge integration
+(:mod:`femtoolkit.continuum.edge`, 2-point Gauss quadrature for Q4, exact
+linear integration for CST) and fed to the unmodified Version 3 solver,
+alongside boundary-region boundary conditions
+(:func:`~femtoolkit.analysis.boundary_conditions.boundary_conditions_for_region`)
+and a :class:`~femtoolkit.analysis.load_case.LoadCase` workflow
+abstraction.
 
-The toolkit does not yet implement unstructured or CAD-driven meshing,
-adaptive mesh refinement, higher-order continuum elements, 3D beams,
-Timoshenko beams, plate, shell, or 3D solid elements, nonlinear or
-dynamic analysis, or visualization.
+The toolkit does not yet implement CAD or NURBS geometry, curved or 3D
+geometry, unstructured or CAD-driven meshing, adaptive mesh refinement,
+higher-order continuum elements, 3D beams, Timoshenko beams, plate,
+shell, or 3D solid elements, load combinations, body forces, nonlinear
+or dynamic analysis, or visualization.
 """
 
 from femtoolkit import logging_config  # noqa: F401  (attaches NullHandler on import)

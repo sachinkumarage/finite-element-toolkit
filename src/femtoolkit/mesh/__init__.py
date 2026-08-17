@@ -2,6 +2,7 @@
 
 from femtoolkit.mesh.bar_element import BarElement
 from femtoolkit.mesh.cst_element import CSTElement2D
+from femtoolkit.mesh.edges import ElementEdge, element_edges, find_boundary_edges
 from femtoolkit.mesh.element import Element
 from femtoolkit.mesh.frame_element import FrameElement2D
 from femtoolkit.mesh.generator import create_quad_mesh, create_triangular_mesh
@@ -17,6 +18,7 @@ __all__ = [
     "BarElement",
     "CSTElement2D",
     "Element",
+    "ElementEdge",
     "ElementQuality",
     "FrameElement2D",
     "Mesh",
@@ -26,7 +28,9 @@ __all__ = [
     "TrussElement2D",
     "create_quad_mesh",
     "create_triangular_mesh",
+    "element_edges",
     "export_mesh",
+    "find_boundary_edges",
     "import_mesh",
     "mesh_from_dict",
     "mesh_to_dict",

@@ -2,10 +2,11 @@
 
 This module defines :class:`Mesh`, a simple container that manages the
 nodes and elements of a finite element model. It provides storage,
-retrieval, referential-integrity validation, and (from Version 8) simple
-mesh-level queries -- element area and shape-quality metrics -- that
-delegate to :mod:`femtoolkit.mesh.quality`. It does not generate, refine,
-or otherwise process geometry; see :mod:`femtoolkit.mesh.generator` for
+retrieval, referential-integrity validation, mesh-level queries (element
+area and shape-quality metrics, delegating to :mod:`femtoolkit.mesh.quality`),
+and (from Version 9) geometry-aware node selection, delegating to
+:mod:`femtoolkit.geometry`. It does not generate, refine, or otherwise
+process geometry itself; see :mod:`femtoolkit.mesh.generator` for
 structured mesh generation.
 """
 
@@ -15,6 +16,7 @@ from collections.abc import Sequence
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from femtoolkit.exceptions import DuplicateIDError, EntityNotFoundError, ValidationError
+from femtoolkit.geometry.boundary import BoundaryRegion
 from femtoolkit.mesh.node import Node
 
 if TYPE_CHECKING:
@@ -197,3 +199,24 @@ class Mesh:
         from femtoolkit.mesh.quality import compute_mesh_quality_summary
 
         return compute_mesh_quality_summary(self)
+
+    def nodes_on_boundary(self, boundary: BoundaryRegion, tolerance: float = 1e-9) -> list[Node]:
+        """Return every node lying on a named geometric boundary.
+
+        Nodes are selected by physical location -- not manually supplied
+        IDs -- so this works for any mesh whose node coordinates fall on
+        ``boundary``'s geometry, generated or hand-built alike.
+
+        Args:
+            boundary: The boundary region to select nodes on (e.g.
+                ``Rectangle(width=2.0, height=1.0).boundary("left")``).
+            tolerance: Maximum distance, in meters, for a node to be
+                considered on the boundary.
+
+        Returns:
+            Matching nodes, in this mesh's node order (deterministic and
+            reproducible for a given mesh).
+        """
+        return [
+            node for node in self.nodes if boundary.contains_point(node.x, node.y, tolerance)
+        ]

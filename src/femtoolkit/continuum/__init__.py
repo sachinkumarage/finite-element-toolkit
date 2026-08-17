@@ -21,6 +21,11 @@ Every quantity here uses **engineering shear strain**
 """
 
 from femtoolkit.continuum.constitutive import plane_strain_matrix, plane_stress_matrix
+from femtoolkit.continuum.edge import (
+    GAUSS_1D_2POINT,
+    edge_equivalent_nodal_force,
+    edge_shape_functions,
+)
 from femtoolkit.continuum.gauss import GAUSS_2X2_POINTS, GaussPoint
 from femtoolkit.continuum.geometry import MIN_TRIANGLE_AREA, triangle_signed_area
 from femtoolkit.continuum.jacobian import (
@@ -49,10 +54,13 @@ from femtoolkit.continuum.stress import (
 )
 
 __all__ = [
+    "GAUSS_1D_2POINT",
     "GAUSS_2X2_POINTS",
     "MIN_JACOBIAN_DETERMINANT",
     "MIN_TRIANGLE_AREA",
     "GaussPoint",
+    "edge_equivalent_nodal_force",
+    "edge_shape_functions",
     "inverse_jacobian",
     "jacobian_determinant",
     "jacobian_matrix",

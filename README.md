@@ -2,7 +2,7 @@
 
 An open-source Python toolkit for developing finite element analysis (FEA) capabilities, built incrementally as a series of versioned milestones.
 
-**This is the Version 8 release.** Version 1 established the project's architecture and core domain model. Version 2 added the basic mathematical foundation for FEA. Version 3 turned that into a validated **1D structural analysis** capability (a bar element, `StaticLinearAnalysis`, and results). Version 4 extended the same analysis workflow to **2D truss structures**: two translational DOFs per node, a `TrussElement2D` transformed from local to global coordinates via its direction cosines, and X/Y loads, constraints, displacements, reactions, and member forces. Version 5 added **2D Euler-Bernoulli beam and frame analysis**: a rotational DOF per node, a `FrameElement2D` that resists axial force, shear force, and bending moment, and per-element shear/moment/bending-stress results. Version 6 introduced the toolkit's first true **2D continuum element**: a `CSTElement2D` (3-node constant strain triangle) representing a finite *area* of material rather than a line member, with plane stress/strain constitutive models, a strain-displacement (`B`) matrix, and von Mises/principal stress recovery. Version 7 added a second continuum element, `QuadElement2D` (4-node bilinear quadrilateral, "Q4"): natural coordinates, isoparametric mapping, the Jacobian, and 2x2 Gauss quadrature, needed because -- unlike the CST element -- a Q4 element's strain-displacement matrix has no closed form and varies within the element. Version 8 adds **automatic structured 2D mesh generation**: `create_quad_mesh`/`create_triangular_mesh` turn a rectangular domain and a subdivision count into a fully connected, correctly oriented mesh, plus whole-mesh validation, shape-quality metrics, and a JSON export/import foundation. It does **not** yet contain unstructured or CAD-driven meshing, adaptive refinement, higher-order continuum elements, 3D beams, Timoshenko beams, plate, shell, or 3D solid elements, or nonlinear/dynamic analysis, or visualization.
+**This is the Version 9 release.** Version 1 established the project's architecture and core domain model. Version 2 added the basic mathematical foundation for FEA. Version 3 turned that into a validated **1D structural analysis** capability (a bar element, `StaticLinearAnalysis`, and results). Version 4 extended the same analysis workflow to **2D truss structures**: two translational DOFs per node, a `TrussElement2D` transformed from local to global coordinates via its direction cosines, and X/Y loads, constraints, displacements, reactions, and member forces. Version 5 added **2D Euler-Bernoulli beam and frame analysis**: a rotational DOF per node, a `FrameElement2D` that resists axial force, shear force, and bending moment, and per-element shear/moment/bending-stress results. Version 6 introduced the toolkit's first true **2D continuum element**: a `CSTElement2D` (3-node constant strain triangle) representing a finite *area* of material rather than a line member, with plane stress/strain constitutive models, a strain-displacement (`B`) matrix, and von Mises/principal stress recovery. Version 7 added a second continuum element, `QuadElement2D` (4-node bilinear quadrilateral, "Q4"): natural coordinates, isoparametric mapping, the Jacobian, and 2x2 Gauss quadrature, needed because -- unlike the CST element -- a Q4 element's strain-displacement matrix has no closed form and varies within the element. Version 8 adds **automatic structured 2D mesh generation**: `create_quad_mesh`/`create_triangular_mesh` turn a rectangular domain and a subdivision count into a fully connected, correctly oriented mesh, plus whole-mesh validation, shape-quality metrics, and a JSON export/import foundation. Version 9 adds a **lightweight 2D geometry foundation and distributed loads**: `Rectangle` with named boundary regions (`"left"`/`"right"`/`"top"`/`"bottom"`), tolerance-based `mesh.nodes_on_boundary()` node selection, generic topological boundary-edge detection, distributed surface tractions converted to equivalent nodal forces by edge integration, boundary-region boundary conditions, and a `LoadCase` workflow abstraction -- all built on the unmodified Version 3 solver. It does **not** yet contain CAD/NURBS or curved/3D geometry, load combinations, body forces, unstructured or CAD-driven meshing, adaptive refinement, higher-order continuum elements, 3D beams, Timoshenko beams, plate, shell, or 3D solid elements, or nonlinear/dynamic analysis, or visualization.
 
 ## Current Features
 
@@ -84,6 +84,18 @@ An open-source Python toolkit for developing finite element analysis (FEA) capab
 - **JSON mesh export/import** (`femtoolkit.mesh.serialization`) — `export_mesh`/`import_mesh` and the underlying `mesh_to_dict`/`mesh_from_dict`, storing each element's own material and thickness for a fully self-contained round trip
 - **Mesh refinement through subdivision** — increasing `nx`/`ny` densifies a mesh over the same domain; no adaptive or error-based refinement (out of scope for this version)
 - **Reuses the existing solver unchanged** — a generated mesh is passed straight into `StaticLinearAnalysis` exactly like a hand-built one; no Version 8-specific solver code exists (see [Version 8](#version-8) below)
+
+**Version 9 — geometry, boundary regions, and distributed loads**
+
+- **Lightweight 2D geometry** (`femtoolkit.geometry`) — `Point2D`, `LineSegment2D`, and `Rectangle(width, height)` model points, edges, and rectangular domains only; deliberately **not** CAD, NURBS, splines, or boolean geometry
+- **Named boundary regions** — `Rectangle.boundary("left"/"right"/"top"/"bottom")` returns a `BoundaryRegion` (a line segment plus its outward unit normal); `BOUNDARY_NAMES` and `Rectangle.boundaries` expose all four at once
+- **Geometry-aware node selection** — `Mesh.nodes_on_boundary(boundary, tolerance=1e-9)` finds every mesh node lying on a `BoundaryRegion` by coordinates and a configurable tolerance (point-to-segment distance, not naive float equality), replacing manual `[n for n in mesh.nodes if n.x == 0.0]` filtering
+- **Generic boundary-edge detection** (`femtoolkit.mesh.edges`) — `find_boundary_edges(mesh)` identifies every element edge that belongs to exactly one element in the whole mesh (shared/interior edges belong to two); works for any mix of `CSTElement2D`/`QuadElement2D` elements, not hardcoded to rectangles
+- **Boundary-region boundary conditions** — `boundary_conditions_for_region(mesh, boundary, ux=..., uy=...)` builds one `BoundaryCondition` per matching node, so a whole edge can be fixed in one call instead of by node ID
+- **Distributed surface tractions** — `DistributedLoad(boundary, magnitude, direction="normal"|"tangential"|"global_x"|"global_y"|"global")` models a traction (Pa, force per unit area) applied along a boundary; `distributed_load_to_nodal_loads` converts it to equivalent `NodalLoad`s via `fe = integral(Nᵀ * t) * thickness ds`, evaluated with 2-point Gauss quadrature over each boundary edge (exact for CST's and Q4's linear edge shape functions)
+- **Load case workflow** — `LoadCase(name, mesh)` bundles boundary conditions and loads (including `fix_boundary`/`add_distributed_load` convenience methods) and applies them to a `StaticLinearAnalysis`, without changing the solver itself
+- **Zero solver changes** — a distributed load is nothing but a list of ordinary `NodalLoad`s by the time it reaches `StaticLinearAnalysis`; the existing `build_force_vector` already sums multiple loads on the same DOF, so shared-edge nodes are handled correctly with no new assembly code
+- **Engineering validation** — single-edge CST and Q4 traction checks against a hand-computed `F = traction * length * thickness`, a fixed-left/traction-right plate with exact per-element stress recovery (Q4) and exact equilibrium, and reaction-equilibrium checks including a statically determinate pin-plus-roller support (see [Version 9](#version-9) below)
 
 ## Installation
 
@@ -339,6 +351,31 @@ for node in mesh.nodes:
         analysis.add_load(NodalLoad(node.id, TranslationDOF.X, 10000.0 / 3))
 result = analysis.solve()
 print(result.element_stress(1)[0])  # ~1e+06 Pa
+```
+
+The full Version 9 workflow -- geometry, boundary selection, and a distributed traction, still solved by the same `StaticLinearAnalysis` (see [Version 9](#version-9) below for the theory):
+
+```python
+from femtoolkit.analysis import DistributedLoad, LoadCase
+from femtoolkit.geometry import Rectangle
+from femtoolkit.materials import LinearElastic2D
+from femtoolkit.mesh import create_quad_mesh
+
+material = LinearElastic2D(youngs_modulus=200e9, poisson_ratio=0.3, formulation="plane_stress")
+domain = Rectangle(width=2.0, height=1.0)
+mesh = create_quad_mesh(width=2.0, height=1.0, nx=4, ny=2, material=material, thickness=0.01)
+
+load_case = LoadCase(name="Uniaxial Tension", mesh=mesh)
+load_case.fix_boundary(domain.boundary("left"), ux=0.0, uy=0.0)
+load_case.add_distributed_load(DistributedLoad(domain.boundary("right"), magnitude=500e3))
+result = load_case.solve()
+
+print(result.element_stress(1)[0])  # 500000.0 Pa -- matches the applied traction exactly
+
+right_nodes = mesh.nodes_on_boundary(domain.boundary("right"))
+left_nodes = mesh.nodes_on_boundary(domain.boundary("left"))
+total_reaction_x = sum(result.node_reaction(n.id)[0] for n in left_nodes)
+print(total_reaction_x)  # -5000.0 N == -(traction * height * thickness)
 ```
 
 ## Version 2
@@ -897,29 +934,128 @@ A mesh from `create_quad_mesh`/`create_triangular_mesh` is a plain `Mesh` of ord
 
 Version 8 does not include unstructured meshing, Delaunay triangulation, CAD geometry import, Gmsh integration, adaptive or error-based mesh refinement, 3D mesh generation, tetrahedral/hexahedral meshing, Abaqus/ANSYS/VTK export, or visualization. See the [Roadmap](#roadmap).
 
+## Version 9
+
+Through Version 8, every boundary condition and load was applied by hand-picking node IDs, or by filtering on raw coordinates (`if node.x == 0.0`). That works for a hand-built mesh but does not scale, and it silently breaks the moment a mesh changes density or the domain moves. Version 9 adds a **lightweight 2D geometry layer**: named boundary regions that a mesh's nodes and edges can be matched against by coordinates and a tolerance, plus **distributed surface tractions** -- a physically meaningful load type (Pa, not N) that Versions 1-8 had no way to express at all -- converted into the ordinary nodal forces the existing solver already understands.
+
+```text
+Rectangle(width, height)              -- geometry
+    v
+.boundary("left"/"right"/"top"/"bottom")  -- named BoundaryRegion (segment + outward normal)
+    v
+mesh.nodes_on_boundary(boundary)      -- matching nodes, by coordinates + tolerance
+find_boundary_edges(mesh)             -- matching edges, by topology (belongs to 1 element)
+    v
+BoundaryCondition(s) / DistributedLoad -> equivalent NodalLoad(s)
+    v
+Existing StaticLinearAnalysis solver (unchanged since Version 3)
+```
+
+### Geometry foundation
+
+`femtoolkit.geometry` is intentionally minimal: `Point2D` (an `(x, y)` pair), `LineSegment2D` (two points, with `.length` and a tolerance-based `contains_point`), and `Rectangle(width, height, origin=Point2D(0, 0))`. This is **not** a CAD kernel -- there is no curved geometry, no NURBS or splines, no boolean union/intersection/subtraction, and no 3D. A `Rectangle`'s four `.corners` are ordered counter-clockwise from the bottom-left, matching the winding convention `QuadElement2D` and the Version 8 mesh generators already use.
+
+### Named boundary regions
+
+A `BoundaryRegion` pairs a `LineSegment2D` with its **outward unit normal** -- e.g. the `"right"` boundary of a `Rectangle` is the segment from its bottom-right to top-right corner, with normal `(1, 0)`. `Rectangle.boundary(name)` builds one on demand; `Rectangle.boundaries` returns all four as a dict. The design generalizes beyond rectangles: any future geometry type just needs to hand back its own `BoundaryRegion` objects, and everything downstream (node selection, boundary conditions, distributed loads) works unchanged, because none of it imports `Rectangle` directly.
+
+### Mesh-to-geometry mapping
+
+`Mesh.nodes_on_boundary(boundary, tolerance=1e-9)` returns every node whose location lies within `tolerance` of the boundary's line segment, using point-to-segment distance (projection onto the segment, clamped to its endpoints) rather than naive floating-point equality -- this is what makes the same selection call work regardless of mesh density or minor floating-point roundoff in generated node coordinates. Results are deterministic: calling it twice on the same mesh and boundary returns the same nodes in the same order every time.
+
+Selecting *edges* (needed for distributed loads, which act on a boundary's length, not just its nodes) uses a different, purely topological rule, implemented in `femtoolkit.mesh.edges`: every element edge is a pair of consecutive node IDs; an edge that appears in only **one** element's edge list, across the whole mesh, is a boundary edge (an edge shared by two elements is interior). This correctly identifies each CST triangle-splitting diagonal as an *interior* edge (both triangles from the same cell reference it), so a triangular mesh has exactly as many boundary edges as the equivalent quad mesh over the same grid: `2 * (nx + ny)`.
+
+### Boundary conditions on a region
+
+`boundary_conditions_for_region(mesh, boundary, ux=..., uy=...)` calls `mesh.nodes_on_boundary` and returns one `BoundaryCondition` per matching node per specified DOF -- e.g. `ux=0.0, uy=0.0` fixes both translational DOFs at every node on that boundary. Passing only `ux` (or only `uy`) constrains just that one DOF, letting the caller build a roller support in one call.
+
+### Distributed surface loads
+
+A **traction** is a force *per unit area* (Pa = N/m^2) -- not a nodal force, and not (by itself) a total force, which additionally depends on how much boundary length and thickness it acts over. `DistributedLoad(boundary, magnitude, direction=...)` supports four traction directions:
+
+```text
+"normal"     magnitude * outward_normal        -- pressure/tension perpendicular to the boundary
+"tangential" magnitude * (rotate normal 90 deg) -- shear along the boundary
+"global_x"   (magnitude, 0)                     -- a fixed X-direction traction regardless of boundary orientation
+"global_y"   (0, magnitude)                     -- a fixed Y-direction traction regardless of boundary orientation
+"global"     magnitude (an (x, y) tuple)         -- an arbitrary fixed-direction traction
+```
+
+A single scalar `magnitude` is used for `"normal"`/`"tangential"`/`"global_x"`/`"global_y"`; `"global"` takes an explicit `(tx, ty)` tuple.
+
+### Equivalent nodal force math
+
+A distributed traction is converted to nodal forces the standard finite-element way, by integrating the traction against the edge's own shape functions:
+
+```text
+fe = integral( Nᵀ * t ) * thickness ds
+```
+
+where `t = (tx, ty)` is the traction vector (Pa) and `N` are the edge's linear shape functions. For a straight two-node edge parameterized by natural coordinate `xi in [-1, 1]`:
+
+```text
+N1(xi) = (1 - xi) / 2      N2(xi) = (1 + xi) / 2      ds/dxi = L / 2
+```
+
+`femtoolkit.continuum.edge` evaluates this integral with 2-point Gauss-Legendre quadrature (`xi = +-1/sqrt(3)`, unit weights) -- exact for these linear shape functions, so no accuracy is lost regardless of edge length. Both `CSTElement2D` and `QuadElement2D` edges use the same two-node linear edge, so the same integration code serves both element types. For a **uniform** traction on a straight edge this integral splits the total force evenly between the two edge nodes (e.g. `traction=1000 Pa, thickness=0.1 m` on a `1 m` edge gives `F = 1000 * 0.1 * 1 = 100 N`, split `50 N` / `50 N`).
+
+### From distributed load to nodal loads
+
+`distributed_load_to_nodal_loads(mesh, load)` finds every boundary edge (via `find_boundary_edges`) whose two nodes both lie on the target `BoundaryRegion`, computes that edge's equivalent nodal forces, and returns them as ordinary `NodalLoad` objects -- **no new solver code is needed**, because `build_force_vector` already sums multiple loads landing on the same DOF. A node shared by two adjacent boundary edges (e.g. an interior node along a finely subdivided edge) correctly receives the sum of both edges' contributions this way, with no special-case aggregation logic required.
+
+### Load cases
+
+`LoadCase(name, mesh)` is a thin, stateful convenience wrapper -- `fix_boundary(boundary, ux=..., uy=...)` and `add_distributed_load(load)` build on `boundary_conditions_for_region`/`distributed_load_to_nodal_loads` internally; `add_boundary_condition`/`add_nodal_load` accept ordinary `BoundaryCondition`/`NodalLoad` objects directly. `load_case.solve()` builds a `StaticLinearAnalysis`, applies everything, and solves -- there is deliberately no load-combination support yet (out of scope for this version; see the [Roadmap](#roadmap)).
+
+### Reaction and force equilibrium
+
+Because a distributed load is just a set of nodal forces by the time it reaches the solver, the existing `R = [K]{u} - {F}` reaction computation requires no changes to correctly reflect a distributed load's contribution. Two independent equilibrium checks validate this end-to-end: the **equivalent nodal forces themselves** must sum to `traction * boundary_length * thickness` (true before any solve happens, a pure statement about the load conversion), and **reactions plus applied forces** must sum to (numerically) zero after solving (`sum(reactions) + sum(applied_forces) ~= 0`), true for any correctly constrained model regardless of mesh density or element type.
+
+One subtlety surfaced during validation: fixing `uy=0` at *every* node along a vertical boundary does **not**, by itself, prevent rigid-body rotation about a point on that same boundary -- for any pivot on that line, a small rotation leaves every point on the line's Y-displacement at exactly zero regardless of angle. A statically determinate 2D support needs a **pin** (`ux=uy=0`) at one point plus a **roller** (`ux=0`, a different DOF) at a *different* point -- exactly the classical determinate-support pattern, and what the reaction-equilibrium validation tests use.
+
+### Units
+
+Consistent SI units throughout: **meters** (m) for coordinates and lengths, **pascals** (Pa = N/m^2) for tractions/pressures and stress, **newtons per meter** (N/m) for line loads (a traction already multiplied by thickness), and **newtons** (N) for nodal forces and reactions (a traction already multiplied by boundary length and thickness).
+
+### Engineering validation
+
+Five validation cases in `tests/validation/`: (1) a single CST edge under constant traction, checked against the hand-computed `F = traction * length * thickness` and its even node split; (2) the same check for a single Q4 edge, confirming CST/Q4 parity; (3) a rectangular plate (fixed left, traction on the right) with exact per-element `sigma_x` recovery on the Q4 mesh and a within-2% match to the analytical uniaxial-bar formula for tip displacement (the small gap is a discrete boundary-disturbance effect from fixing every left-edge node independently, a finite-element analogue of Saint-Venant's principle, not a defect); (4) force equilibrium of the equivalent nodal forces across multiple mesh densities, element types, and traction directions; (5) reaction equilibrium after solving, for both element types and for a statically determinate pin-plus-roller support (see [Version 9](#version-9) above).
+
+### Limitations
+
+Version 9 does not include CAD/STEP/IGES/NURBS import, curved or 3D geometry, boolean geometry operations, load combinations or multiple simultaneous load cases, nonlinear loads, contact, pressure-follower loads, body forces (gravity, thermal), multi-point constraints, or visualization. See the [Roadmap](#roadmap).
+
 ## Project Structure
 
 ```text
 finite-element-toolkit/
 ├── src/femtoolkit/
+│   ├── geometry/            # Point2D, LineSegment2D, Rectangle, BoundaryRegion --
+│   │                       # lightweight 2D geometry and named boundary regions
 │   ├── materials/          # Material, LinearElastic2D (2D constitutive model)
 │   ├── mesh/               # Node, Element, BarElement, TrussElement2D,
-│   │                       # FrameElement2D, CSTElement2D, QuadElement2D, Mesh,
+│   │                       # FrameElement2D, CSTElement2D, QuadElement2D, Mesh
+│   │                       # (incl. nodes_on_boundary),
 │   │                       # generator.py (structured mesh generation),
 │   │                       # quality.py (shape-quality metrics),
 │   │                       # validation.py (whole-mesh checks),
-│   │                       # serialization.py (JSON export/import)
+│   │                       # serialization.py (JSON export/import),
+│   │                       # edges.py (topological boundary-edge detection)
 │   ├── sections/           # CrossSection
 │   ├── continuum/          # Reusable 2D continuum math: geometry, shape
 │   │                       # functions (triangle + Q4), isoparametric
 │   │                       # Jacobian, 2x2 Gauss quadrature,
 │   │                       # strain-displacement (B) matrix, plane
 │   │                       # stress/strain constitutive (D) matrices,
-│   │                       # stress/von Mises/principal stress recovery
-│   ├── analysis/           # DOFs (incl. RotationDOF), boundary conditions,
-│   │                       # loads, stiffness matrix, transformation
-│   │                       # matrix, assembly, linear system, the
-│   │                       # AssemblableElement/StructuralElement/
+│   │                       # stress/von Mises/principal stress recovery,
+│   │                       # edge.py (equivalent nodal force integration)
+│   ├── analysis/           # DOFs (incl. RotationDOF), boundary conditions
+│   │                       # (incl. boundary_conditions_for_region),
+│   │                       # loads, distributed_load.py (DistributedLoad,
+│   │                       # distributed_load_to_nodal_loads),
+│   │                       # load_case.py (LoadCase), stiffness matrix,
+│   │                       # transformation matrix, assembly, linear system,
+│   │                       # the AssemblableElement/StructuralElement/
 │   │                       # FrameStructuralElement/ContinuumElement
 │   │                       # protocols, and the StaticLinearAnalysis workflow
 │   ├── results/            # AnalysisResult, FrameEndForces, FrameElementForces
@@ -974,13 +1110,16 @@ python examples/quad_patch_test.py            # Version 7: Q4 constant-strain pa
 python examples/generate_quad_mesh.py         # Version 8: automatic Q4 mesh generation + quality summary
 python examples/generate_tri_mesh.py          # Version 8: automatic CST mesh generation + quality summary
 python examples/mesh_and_analysis.py          # Version 8: generated mesh solved by the existing solver
+python examples/boundary_selection.py         # Version 9: Rectangle geometry + named-boundary node selection
+python examples/distributed_traction.py       # Version 9: fixed-left/traction-right plate, Q4 mesh
+python examples/plate_with_cst_mesh.py        # Version 9: same workflow on a CST (triangular) mesh
 ```
 
 ## Roadmap
 
 Future versions will build a more complete FEA solver on top of this foundation. None of the following is implemented yet:
 
-- **Version 9** — Advanced mesh generation and boundary/load assignment: geometry entities, named boundary regions, boundary-condition assignment by geometry, distributed/surface loads, mesh refinement regions
+- **Version 10** — Multiple load cases and load combinations, pressure loads, body forces (gravity), temperature loads, multi-point constraints
 - **Later** — Unstructured/CAD-driven meshing, 3D elements, higher-order continuum elements, nonlinear analysis, GUI, visualization, reporting, and more
 
 ## License
