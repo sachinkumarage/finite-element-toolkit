@@ -27,6 +27,10 @@ from femtoolkit.analysis.boundary_conditions import BoundaryCondition
 from femtoolkit.analysis.dof import DOFMap
 from femtoolkit.analysis.element import AssemblableElement
 from femtoolkit.analysis.loads import NodalLoad
+from femtoolkit.analysis.multi_point_constraint import (
+    MultiPointConstraint,
+    apply_multi_point_constraints,
+)
 from femtoolkit.analysis.system import LinearSystem, build_force_vector, solve
 from femtoolkit.exceptions import (
     InsufficientConstraintsError,
@@ -78,6 +82,7 @@ class StaticLinearAnalysis:
         self._mesh = mesh
         self._loads: list[NodalLoad] = []
         self._boundary_conditions: list[BoundaryCondition] = []
+        self._multi_point_constraints: list[MultiPointConstraint] = []
 
     def add_load(self, load: NodalLoad) -> None:
         """Add a nodal load to the analysis.
@@ -94,6 +99,17 @@ class StaticLinearAnalysis:
             boundary_condition: The boundary condition to apply.
         """
         self._boundary_conditions.append(boundary_condition)
+
+    def add_multi_point_constraint(self, constraint: MultiPointConstraint) -> None:
+        """Add a multi-point constraint (equal-displacement tie) to the analysis.
+
+        See :mod:`femtoolkit.analysis.multi_point_constraint` for how this
+        is enforced (the penalty method).
+
+        Args:
+            constraint: The multi-point constraint to apply.
+        """
+        self._multi_point_constraints.append(constraint)
 
     def solve(self) -> AnalysisResult:
         """Assemble and solve the structural system for this analysis.
@@ -152,6 +168,9 @@ class StaticLinearAnalysis:
             for element in elements
         ]
         global_stiffness = assemble_global_stiffness(dof_map, contributions)
+        global_stiffness = apply_multi_point_constraints(
+            dof_map, global_stiffness, self._multi_point_constraints
+        )
         forces = build_force_vector(dof_map, self._loads)
 
         system = LinearSystem(

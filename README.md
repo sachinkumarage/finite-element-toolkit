@@ -2,7 +2,7 @@
 
 An open-source Python toolkit for developing finite element analysis (FEA) capabilities, built incrementally as a series of versioned milestones.
 
-**This is the Version 9 release.** Version 1 established the project's architecture and core domain model. Version 2 added the basic mathematical foundation for FEA. Version 3 turned that into a validated **1D structural analysis** capability (a bar element, `StaticLinearAnalysis`, and results). Version 4 extended the same analysis workflow to **2D truss structures**: two translational DOFs per node, a `TrussElement2D` transformed from local to global coordinates via its direction cosines, and X/Y loads, constraints, displacements, reactions, and member forces. Version 5 added **2D Euler-Bernoulli beam and frame analysis**: a rotational DOF per node, a `FrameElement2D` that resists axial force, shear force, and bending moment, and per-element shear/moment/bending-stress results. Version 6 introduced the toolkit's first true **2D continuum element**: a `CSTElement2D` (3-node constant strain triangle) representing a finite *area* of material rather than a line member, with plane stress/strain constitutive models, a strain-displacement (`B`) matrix, and von Mises/principal stress recovery. Version 7 added a second continuum element, `QuadElement2D` (4-node bilinear quadrilateral, "Q4"): natural coordinates, isoparametric mapping, the Jacobian, and 2x2 Gauss quadrature, needed because -- unlike the CST element -- a Q4 element's strain-displacement matrix has no closed form and varies within the element. Version 8 adds **automatic structured 2D mesh generation**: `create_quad_mesh`/`create_triangular_mesh` turn a rectangular domain and a subdivision count into a fully connected, correctly oriented mesh, plus whole-mesh validation, shape-quality metrics, and a JSON export/import foundation. Version 9 adds a **lightweight 2D geometry foundation and distributed loads**: `Rectangle` with named boundary regions (`"left"`/`"right"`/`"top"`/`"bottom"`), tolerance-based `mesh.nodes_on_boundary()` node selection, generic topological boundary-edge detection, distributed surface tractions converted to equivalent nodal forces by edge integration, boundary-region boundary conditions, and a `LoadCase` workflow abstraction -- all built on the unmodified Version 3 solver. It does **not** yet contain CAD/NURBS or curved/3D geometry, load combinations, body forces, unstructured or CAD-driven meshing, adaptive refinement, higher-order continuum elements, 3D beams, Timoshenko beams, plate, shell, or 3D solid elements, or nonlinear/dynamic analysis, or visualization.
+**This is the Version 10 release.** Version 1 established the project's architecture and core domain model. Version 2 added the basic mathematical foundation for FEA. Version 3 turned that into a validated **1D structural analysis** capability (a bar element, `StaticLinearAnalysis`, and results). Version 4 extended the same analysis workflow to **2D truss structures**: two translational DOFs per node, a `TrussElement2D` transformed from local to global coordinates via its direction cosines, and X/Y loads, constraints, displacements, reactions, and member forces. Version 5 added **2D Euler-Bernoulli beam and frame analysis**: a rotational DOF per node, a `FrameElement2D` that resists axial force, shear force, and bending moment, and per-element shear/moment/bending-stress results. Version 6 introduced the toolkit's first true **2D continuum element**: a `CSTElement2D` (3-node constant strain triangle) representing a finite *area* of material rather than a line member, with plane stress/strain constitutive models, a strain-displacement (`B`) matrix, and von Mises/principal stress recovery. Version 7 added a second continuum element, `QuadElement2D` (4-node bilinear quadrilateral, "Q4"): natural coordinates, isoparametric mapping, the Jacobian, and 2x2 Gauss quadrature, needed because -- unlike the CST element -- a Q4 element's strain-displacement matrix has no closed form and varies within the element. Version 8 adds **automatic structured 2D mesh generation**: `create_quad_mesh`/`create_triangular_mesh` turn a rectangular domain and a subdivision count into a fully connected, correctly oriented mesh, plus whole-mesh validation, shape-quality metrics, and a JSON export/import foundation. Version 9 adds a **lightweight 2D geometry foundation and distributed loads**: `Rectangle` with named boundary regions (`"left"`/`"right"`/`"top"`/`"bottom"`), tolerance-based `mesh.nodes_on_boundary()` node selection, generic topological boundary-edge detection, distributed surface tractions converted to equivalent nodal forces by edge integration, boundary-region boundary conditions, and a `LoadCase` workflow abstraction. Version 10 adds a **professional loading system**: `LoadCase` no longer needs a mesh up front, `LoadCombination` combines multiple load cases with load factors (`1.2 * Dead + 1.6 * Live`), `LoadManager` registers and solves every load case/combination for one mesh into a named `ResultSet`, and two new load types -- `GravityLoad` (a body force) and `TemperatureLoad` (uniform thermal expansion) -- join a simple penalty-method `MultiPointConstraint` for tying two DOFs to equal displacement, all built on the unmodified Version 3 solver. It does **not** yet contain CAD/NURBS or curved/3D geometry, temperature gradients, rigid-body constraints, contact, unstructured or CAD-driven meshing, adaptive refinement, higher-order continuum elements, 3D beams, Timoshenko beams, plate, shell, or 3D solid elements, or nonlinear/dynamic analysis, or visualization.
 
 ## Current Features
 
@@ -96,6 +96,18 @@ An open-source Python toolkit for developing finite element analysis (FEA) capab
 - **Load case workflow** — `LoadCase(name, mesh)` bundles boundary conditions and loads (including `fix_boundary`/`add_distributed_load` convenience methods) and applies them to a `StaticLinearAnalysis`, without changing the solver itself
 - **Zero solver changes** — a distributed load is nothing but a list of ordinary `NodalLoad`s by the time it reaches `StaticLinearAnalysis`; the existing `build_force_vector` already sums multiple loads on the same DOF, so shared-edge nodes are handled correctly with no new assembly code
 - **Engineering validation** — single-edge CST and Q4 traction checks against a hand-computed `F = traction * length * thickness`, a fixed-left/traction-right plate with exact per-element stress recovery (Q4) and exact equilibrium, and reaction-equilibrium checks including a statically determinate pin-plus-roller support (see [Version 9](#version-9) below)
+
+**Version 10 — advanced boundary conditions and load cases**
+
+- **Mesh-optional load cases** — `LoadCase(name="Dead Load")` no longer requires a mesh at construction; `fix_boundary`/`add_distributed_load`/`add_gravity_load`/`add_thermal_load` resolve immediately if a mesh is already bound, or defer until one is supplied to `resolved_boundary_conditions`/`resolved_nodal_loads`/`solve`/`apply_to` -- fully backward compatible with the Version 9 mesh-bound style
+- **Load combinations** — `LoadCombination(name="Ultimate", factors={dead_load: 1.2, live_load: 1.6})` scales and sums each load case's nodal loads by its factor; boundary conditions and multi-point constraints are unioned (unscaled -- a support is a structural feature, not a load), with a `ValidationError` if two load cases disagree on the same DOF's prescribed value
+- **Load manager** — `LoadManager(mesh)` registers named load cases and combinations and solves all of them in one call, `solve_all()`, returning a `ResultSet`
+- **Named result lookup** — `results.for_load_case("Dead Load")` / `results.for_combination("Ultimate")` return an ordinary `AnalysisResult`; every existing displacement/reaction/stress/strain query works unchanged
+- **Gravity (body-force) loading** — `GravityLoad(g=9.81, direction=(0.0, -1.0))` models a uniform acceleration field; `gravity_load_to_nodal_loads` integrates `Ni * density * g` over each element's area (an exact 1/3 split per CST element via the area-coordinate integral identity, 2x2 Gauss quadrature per Q4 element) -- `LinearElastic2D` gained an optional `density` field
+- **Uniform thermal loading** — `TemperatureLoad(delta_temperature=100.0)` models a uniform temperature change producing a free thermal strain `epsilon_thermal = alpha * dT`; `thermal_load_to_nodal_loads` converts it to an equivalent nodal force via the standard initial-strain formula `fe = integral(Bᵀ * D * epsilon_thermal) * thickness dA` -- `LinearElastic2D` gained an optional `thermal_expansion_coefficient` field, and `thermal_corrected_stress`/`thermal_corrected_strain` isolate the true mechanical stress/strain by subtracting the thermal eigenstrain (only a uniform temperature change is supported; no gradients)
+- **Multi-point constraints** — `MultiPointConstraint(node_id_a, node_id_b, dof)` ties two DOFs to equal displacement (e.g. `ux(node1) = ux(node2)`) via the penalty method: a large fictitious stiffness is added between the two DOFs in the assembled global stiffness matrix before boundary conditions are applied, requiring no changes to `DOFMap` or the elimination/reduction pipeline -- approximate (not bit-exact) but standard, verified against an analytical two-bar-chain solution
+- **Zero solver changes** — every new load type still reduces to ordinary `NodalLoad`/`BoundaryCondition` objects (or, for multi-point constraints, one small stiffness-matrix augmentation) fed to the unmodified `StaticLinearAnalysis`
+- **Engineering validation** — total-weight reaction checks across mesh densities and element types, free-expansion (zero-stress) and fully-restrained (exact analytical thermal stress) thermal checks, a two-bar-chain multi-point-constraint check against the closed-form single-bar solution, and a load-combination superposition check (see [Version 10](#version-10) below)
 
 ## Installation
 
@@ -376,6 +388,41 @@ right_nodes = mesh.nodes_on_boundary(domain.boundary("right"))
 left_nodes = mesh.nodes_on_boundary(domain.boundary("left"))
 total_reaction_x = sum(result.node_reaction(n.id)[0] for n in left_nodes)
 print(total_reaction_x)  # -5000.0 N == -(traction * height * thickness)
+```
+
+Version 10's load cases, load combinations, and gravity loading, still solved by the same `StaticLinearAnalysis` (see [Version 10](#version-10) below for the theory):
+
+```python
+from femtoolkit.analysis import DistributedLoad, GravityLoad, LoadCase, LoadCombination, LoadManager
+from femtoolkit.geometry import Rectangle
+from femtoolkit.materials import LinearElastic2D
+from femtoolkit.mesh import create_quad_mesh
+
+material = LinearElastic2D(
+    youngs_modulus=200e9, poisson_ratio=0.3, formulation="plane_stress", density=7850.0
+)
+domain = Rectangle(width=2.0, height=1.0)
+mesh = create_quad_mesh(width=2.0, height=1.0, nx=4, ny=2, material=material, thickness=0.01)
+
+# Load cases no longer need a mesh up front:
+dead_load = LoadCase(name="Dead Load")
+dead_load.fix_boundary(domain.boundary("left"), ux=0.0, uy=0.0)
+dead_load.add_gravity_load(GravityLoad(g=9.81))
+
+live_load = LoadCase(name="Live Load")
+live_load.fix_boundary(domain.boundary("left"), ux=0.0, uy=0.0)
+live_load.add_distributed_load(DistributedLoad(domain.boundary("top"), magnitude=-20_000.0))
+
+ultimate = LoadCombination(name="Ultimate", factors={dead_load: 1.2, live_load: 1.6})
+
+manager = LoadManager(mesh)
+manager.add_load_case(dead_load)
+manager.add_load_case(live_load)
+manager.add_combination(ultimate)
+results = manager.solve_all()
+
+print(results.for_load_case("Dead Load").node_reaction(1))  # (1540.17..., 570.85...) N
+print(results.for_combination("Ultimate").node_reaction(1))  # 1.2 * Dead + 1.6 * Live, exactly
 ```
 
 ## Version 2
@@ -1025,6 +1072,90 @@ Five validation cases in `tests/validation/`: (1) a single CST edge under consta
 
 Version 9 does not include CAD/STEP/IGES/NURBS import, curved or 3D geometry, boolean geometry operations, load combinations or multiple simultaneous load cases, nonlinear loads, contact, pressure-follower loads, body forces (gravity, thermal), multi-point constraints, or visualization. See the [Roadmap](#roadmap).
 
+## Version 10
+
+Through Version 9, a `LoadCase` needed a mesh at construction and represented exactly one set of conditions and loads, solved once -- there was no way to express "the same dead load case, scaled and combined with a live load case" without rebuilding everything by hand. Version 10 adds a **professional loading system** on top of the existing solver: load cases that can be built independently of any mesh, load combinations with load factors, a centralized load manager, and two new physically meaningful load types (gravity and uniform thermal expansion), plus a simple mechanism for tying two DOFs together.
+
+```text
+Geometry -> Mesh -> Load Cases -> Load Combinations
+    -> Boundary Conditions / Loads -> Solver -> Results (per case/combination)
+```
+
+### Mesh-optional load cases
+
+`LoadCase(name="Dead Load")` -- no `mesh=` argument -- builds a load case that knows nothing about any particular mesh yet. `fix_boundary`/`add_distributed_load`/`add_gravity_load`/`add_thermal_load` still work immediately: if a mesh *is* bound (the Version 9 style, `LoadCase(name=..., mesh=mesh)`), they resolve into concrete `BoundaryCondition`/`NodalLoad` objects right away, exactly as before; if not, they store the unresolved region/load specification and defer resolution until a mesh becomes available, via `resolved_boundary_conditions(mesh)`, `resolved_nodal_loads(mesh)`, or the `mesh` argument to `solve()`/`apply_to()`. This dual behavior is what keeps every Version 9 `LoadCase` test passing unchanged while enabling the new mesh-independent style `LoadCombination`/`LoadManager` need.
+
+### Load combinations
+
+`LoadCombination(name="Ultimate", factors={dead_load: 1.2, live_load: 1.6})` represents a factored sum of load cases -- standard structural engineering practice (e.g. `1.2 * Dead + 1.6 * Live` for an ultimate/strength combination). Each load case's *loads* (nodal, distributed, gravity, thermal -- all ultimately plain `NodalLoad`s) are scaled by that case's factor and summed; **boundary conditions are not scaled** -- a support is a physical feature of the structure, not something that grows with a load factor -- so every included load case's boundary conditions are *unioned* instead, and `resolved_boundary_conditions` raises `ValidationError` if two load cases disagree on the prescribed value for the same node/DOF. Multi-point constraints are unioned the same way. `LoadCombination.solve(mesh)` builds an ordinary `StaticLinearAnalysis` from the combined boundary conditions, loads, and constraints -- no new solver.
+
+### Load manager
+
+`LoadManager(mesh)` is the centralized entry point: `add_load_case`/`add_combination` register named load cases and combinations against one mesh, and `solve_all()` solves every one of them, returning a `ResultSet`.
+
+### Named result lookup
+
+```python
+results.for_load_case("Dead Load")
+results.for_load_case("Wind Load")
+results.for_combination("Ultimate")
+```
+
+Each lookup returns an ordinary `AnalysisResult` -- every displacement/reaction/stress/strain query introduced in Versions 1-9 works completely unchanged; `ResultSet` is purely a name-indexed container over already-solved results, not a new results type.
+
+### Gravity (body-force) loading
+
+Unlike a distributed boundary traction (Version 9), gravity is a **body force**: it acts throughout an element's *area*, not along one edge. `GravityLoad(g=9.81, direction=(0.0, -1.0))` models a uniform acceleration field; `gravity_load_to_nodal_loads` converts it to equivalent nodal forces the standard way, by integrating the body force against each element's own shape functions:
+
+```text
+fe = integral( N^T * rho * g_vec ) * thickness dA
+```
+
+For a **CST element**, the triangle's area-coordinate shape functions integrate exactly to `A/3` each (`integral(Li) dA = A/3`), so the element's total weight, `W = density * area * thickness * g`, splits evenly across its three nodes with no numerical integration needed. For a **Q4 element**, the bilinear shape functions do not split evenly in general (only for a rectangle/parallelogram), so the same 2x2 Gauss quadrature used for the stiffness matrix is reused instead. `LinearElastic2D` gained an optional `density` field (`None` by default, so every existing constructor call from Versions 6-9 is unaffected) to support this.
+
+### Uniform thermal loading
+
+`TemperatureLoad(delta_temperature=100.0)` models a spatially **uniform** temperature change (no gradients -- out of scope for this version), producing a free thermal strain in an isotropic material:
+
+```text
+epsilon_thermal = [ alpha * dT, alpha * dT, 0 ]
+```
+
+(no thermal shear strain for an isotropic material under uniform heating). Because a restrained structure resists this free strain, `thermal_load_to_nodal_loads` converts it to an **initial-strain equivalent nodal force** -- the standard finite-element technique for injecting a stress-free eigenstrain into a linear model:
+
+```text
+fe = integral( B^T * D * epsilon_thermal ) * thickness dA
+```
+
+exactly analogous to the element stiffness matrix's own integral (closed-form for CST's constant `B`, 2x2 Gauss quadrature for Q4's point-varying `B`). `LinearElastic2D` gained an optional `thermal_expansion_coefficient` field (`alpha`) for this.
+
+**Stress recovery under a thermal load needs care.** `AnalysisResult.element_stress()` is unchanged since Version 6: it reports `sigma = D @ epsilon_total` from the *total* strain implied by displacements, with no notion of "thermal" loading -- under a thermal load, `epsilon_total` already includes the free thermal strain, so this is only the physically meaningful stress for a *fully restrained* element. `thermal_corrected_stress(result, element, thermal_load)` (and `thermal_corrected_strain`) isolate the true mechanical stress/strain by explicitly subtracting the thermal eigenstrain, `sigma = D @ (epsilon_total - epsilon_thermal)` -- zero for a freely expanding element, and the exact analytical thermal stress for a fully restrained one. This is implemented as a standalone function, not a change to `AnalysisResult` or the `ContinuumElement` protocol shared by every version.
+
+### Multi-point constraints
+
+`MultiPointConstraint(node_id_a, node_id_b, dof)` ties the same DOF direction at two nodes to equal displacement, e.g. `ux(node1) = ux(node2)` -- useful for connecting two independently meshed regions that share a coincident location but no actual node. Deliberately minimal: no rigid-body constraints (fixed offset, rotation-coupled motion) and no contact.
+
+**Enforcement: the penalty method.** Rather than eliminating a DOF from the system (which would require reworking `DOFMap` and the assembly/reduction pipeline), a very stiff fictitious spring is added between the two DOFs directly in the assembled global stiffness matrix, before boundary conditions are applied:
+
+```text
+K[a,a] += k_p      K[b,b] += k_p
+K[a,b] -= k_p      K[b,a] -= k_p
+```
+
+with `k_p` scaled relative to the stiffness matrix's own largest diagonal entry (`PENALTY_FACTOR = 1e7` times it), so the technique behaves consistently regardless of a problem's physical stiffness or unit scale. This is a standard, well-known FEA technique -- approximate, not bit-exact, but accurate to a very close tolerance for realistic penalty factors (verified below to about 1 part in 10^5 against an analytical solution). `StaticLinearAnalysis.add_multi_point_constraint` requires no other changes to assembly, DOF mapping, or the solver.
+
+### Units
+
+Density in kg/m^3, thermal expansion coefficient in 1/K, temperature change in K (or equivalently degrees Celsius, since only the difference matters), gravitational acceleration in m/s^2 -- consistent with the SI convention maintained since Version 1.
+
+### Engineering validation
+
+Five validation areas in `tests/validation/`: (1) total-weight reaction checks (`W = density * area * thickness * g`) across multiple mesh densities and both element types; (2) free thermal expansion of a pin-plus-roller-supported plate matching `u = alpha * dT * coordinate` exactly with zero thermal-corrected stress; (3) a fully restrained element matching the exact analytical thermal stress, `sigma = -D @ epsilon_thermal`; (4) a multi-point-constrained two-bar-chain matching the closed-form single continuous-bar solution to within the penalty method's expected tolerance; (5) a load combination matching manual superposition (`1.2 * Dead + 1.6 * Live`, evaluated independently and compared to the combination's own solve) to floating-point precision, an exact consequence of the underlying system's linearity (see [Version 10](#version-10) above).
+
+### Limitations
+
+Version 10 does not include temperature *gradients* (only a spatially uniform change), rigid-body or contact constraints, nonlinear loads, load-case-dependent (as opposed to load-combination-level) boundary condition scaling, or an exact (non-penalty) multi-point-constraint elimination method. See the [Roadmap](#roadmap).
+
 ## Project Structure
 
 ```text
@@ -1053,12 +1184,19 @@ finite-element-toolkit/
 │   │                       # (incl. boundary_conditions_for_region),
 │   │                       # loads, distributed_load.py (DistributedLoad,
 │   │                       # distributed_load_to_nodal_loads),
-│   │                       # load_case.py (LoadCase), stiffness matrix,
+│   │                       # body_load.py (GravityLoad),
+│   │                       # thermal_load.py (TemperatureLoad,
+│   │                       # thermal_corrected_stress/strain),
+│   │                       # multi_point_constraint.py (MultiPointConstraint),
+│   │                       # load_case.py (LoadCase, mesh-optional),
+│   │                       # load_combination.py (LoadCombination),
+│   │                       # load_manager.py (LoadManager), stiffness matrix,
 │   │                       # transformation matrix, assembly, linear system,
 │   │                       # the AssemblableElement/StructuralElement/
 │   │                       # FrameStructuralElement/ContinuumElement
 │   │                       # protocols, and the StaticLinearAnalysis workflow
-│   ├── results/            # AnalysisResult, FrameEndForces, FrameElementForces
+│   ├── results/            # AnalysisResult, FrameEndForces, FrameElementForces,
+│   │                       # ResultSet (named load case/combination results)
 │   ├── units/               # SI unit constants
 │   ├── exceptions/          # Custom exception types (incl. DegenerateElementError,
 │   │                       # DuplicateNodeCoordinatesError)
@@ -1113,13 +1251,18 @@ python examples/mesh_and_analysis.py          # Version 8: generated mesh solved
 python examples/boundary_selection.py         # Version 9: Rectangle geometry + named-boundary node selection
 python examples/distributed_traction.py       # Version 9: fixed-left/traction-right plate, Q4 mesh
 python examples/plate_with_cst_mesh.py        # Version 9: same workflow on a CST (triangular) mesh
+python examples/load_cases.py                 # Version 10: independent load cases via LoadManager
+python examples/gravity_loading.py            # Version 10: self-weight (gravity) loading
+python examples/temperature_loading.py        # Version 10: free vs. fully-restrained thermal expansion
+python examples/load_combinations.py          # Version 10: factored load combinations + superposition check
+python examples/multi_point_constraints.py    # Version 10: tying two independently meshed bar chains
 ```
 
 ## Roadmap
 
 Future versions will build a more complete FEA solver on top of this foundation. None of the following is implemented yet:
 
-- **Version 10** — Multiple load cases and load combinations, pressure loads, body forces (gravity), temperature loads, multi-point constraints
+- **Version 11** — Dynamic finite element analysis: mass matrices, damping matrices, time integration, natural frequencies, free and forced vibration
 - **Later** — Unstructured/CAD-driven meshing, 3D elements, higher-order continuum elements, nonlinear analysis, GUI, visualization, reporting, and more
 
 ## License

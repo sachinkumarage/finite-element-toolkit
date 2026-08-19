@@ -49,11 +49,21 @@ class LinearElastic2D:
             along it, ``epsilon_z = 0``). See
             :mod:`femtoolkit.continuum.constitutive` for the underlying
             physics and formulas.
+        density: Mass density, in kg/m^3. Optional (``None`` by default,
+            preserving every constructor call from Versions 6-9); only
+            required by callers that need it, currently gravity/body-force
+            loading (see :mod:`femtoolkit.analysis.body_load`).
+        thermal_expansion_coefficient: Coefficient of linear thermal
+            expansion ``alpha``, in 1/K. Optional (``None`` by default);
+            only required for thermal loading (see
+            :mod:`femtoolkit.analysis.thermal_load`).
 
     Raises:
         ValidationError: If ``youngs_modulus`` or ``poisson_ratio`` is
-            not a physically valid, finite value, or if ``formulation``
-            is not one of the two supported values.
+            not a physically valid, finite value, if ``formulation`` is
+            not one of the two supported values, if ``density`` is given
+            and not positive and finite, or if
+            ``thermal_expansion_coefficient`` is given and not finite.
 
     Example:
         >>> steel = LinearElastic2D(
@@ -61,20 +71,31 @@ class LinearElastic2D:
         ... )
         >>> steel.constitutive_matrix.shape
         (3, 3)
+        >>> steel_with_thermal = LinearElastic2D(
+        ...     youngs_modulus=210e9,
+        ...     poisson_ratio=0.3,
+        ...     formulation="plane_stress",
+        ...     density=7850.0,
+        ...     thermal_expansion_coefficient=12e-6,
+        ... )
     """
 
     youngs_modulus: float
     poisson_ratio: float
     formulation: PlaneFormulation
+    density: float | None = None
+    thermal_expansion_coefficient: float | None = None
 
     def __post_init__(self) -> None:
         """Validate the elastic constants and formulation immediately after construction.
 
         Raises:
             ValidationError: If ``youngs_modulus`` or ``poisson_ratio``
-                is not a physically valid, finite value, or if
+                is not a physically valid, finite value, if
                 ``formulation`` is not ``"plane_stress"`` or
-                ``"plane_strain"``.
+                ``"plane_strain"``, if ``density`` is given and not
+                positive and finite, or if
+                ``thermal_expansion_coefficient`` is given and not finite.
         """
         if not math.isfinite(self.youngs_modulus) or self.youngs_modulus <= 0:
             raise ValidationError(
@@ -91,6 +112,17 @@ class LinearElastic2D:
             raise ValidationError(
                 'LinearElastic2D formulation must be "plane_stress" or "plane_strain", '
                 f"got {self.formulation!r}."
+            )
+        if self.density is not None and (not math.isfinite(self.density) or self.density <= 0):
+            raise ValidationError(
+                f"LinearElastic2D density must be positive, got {self.density}."
+            )
+        if self.thermal_expansion_coefficient is not None and not math.isfinite(
+            self.thermal_expansion_coefficient
+        ):
+            raise ValidationError(
+                "LinearElastic2D thermal_expansion_coefficient must be finite, got "
+                f"{self.thermal_expansion_coefficient}."
             )
 
     @property

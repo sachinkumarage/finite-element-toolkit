@@ -52,13 +52,35 @@ linear integration for CST) and fed to the unmodified Version 3 solver,
 alongside boundary-region boundary conditions
 (:func:`~femtoolkit.analysis.boundary_conditions.boundary_conditions_for_region`)
 and a :class:`~femtoolkit.analysis.load_case.LoadCase` workflow
-abstraction.
+abstraction. Version 10 adds a professional loading system on top of
+that: :class:`~femtoolkit.analysis.load_case.LoadCase` no longer needs a
+mesh at construction (it can be built independently and bound later),
+:class:`~femtoolkit.analysis.load_combination.LoadCombination` combines
+multiple load cases with load factors (``1.2 * Dead + 1.6 * Live``), and
+:class:`~femtoolkit.analysis.load_manager.LoadManager` registers and
+solves every load case/combination for one mesh, returning a
+:class:`~femtoolkit.results.result_set.ResultSet` addressable by name.
+Two new load types round out the loading system:
+:class:`~femtoolkit.analysis.body_load.GravityLoad` (a body force,
+``F = density * area * thickness * g``, exact for CST, Gauss-quadrature
+for Q4) and :class:`~femtoolkit.analysis.thermal_load.TemperatureLoad`
+(a uniform temperature change, converted to an equivalent nodal force via
+the initial-thermal-strain formulation, with
+:func:`~femtoolkit.analysis.thermal_load.thermal_corrected_stress`
+isolating the true mechanical stress). Density and a thermal expansion
+coefficient are new optional fields on
+:class:`~femtoolkit.materials.linear_elastic_2d.LinearElastic2D`.
+Finally, :class:`~femtoolkit.analysis.multi_point_constraint.MultiPointConstraint`
+ties two DOFs to equal displacement via a penalty-stiffness augmentation
+of the global stiffness matrix, with zero changes to
+:class:`~femtoolkit.analysis.static_linear.StaticLinearAnalysis`'s
+assembly/reduction pipeline.
 
 The toolkit does not yet implement CAD or NURBS geometry, curved or 3D
 geometry, unstructured or CAD-driven meshing, adaptive mesh refinement,
 higher-order continuum elements, 3D beams, Timoshenko beams, plate,
-shell, or 3D solid elements, load combinations, body forces, nonlinear
-or dynamic analysis, or visualization.
+shell, or 3D solid elements, temperature gradients, rigid-body
+constraints, contact, nonlinear or dynamic analysis, or visualization.
 """
 
 from femtoolkit import logging_config  # noqa: F401  (attaches NullHandler on import)
