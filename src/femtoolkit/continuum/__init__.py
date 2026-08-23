@@ -35,6 +35,12 @@ from femtoolkit.continuum.jacobian import (
     jacobian_matrix,
     physical_shape_function_derivatives,
 )
+from femtoolkit.continuum.mass import (
+    lumped_mass_matrix,
+    quad_consistent_mass_matrix,
+    quad_shape_function_matrix,
+    triangle_consistent_mass_matrix,
+)
 from femtoolkit.continuum.shape_functions import (
     quad_shape_function_derivatives,
     quad_shape_functions,
@@ -64,15 +70,19 @@ __all__ = [
     "inverse_jacobian",
     "jacobian_determinant",
     "jacobian_matrix",
+    "lumped_mass_matrix",
     "physical_shape_function_derivatives",
     "plane_strain_matrix",
     "plane_stress_matrix",
     "principal_stresses_2d",
+    "quad_consistent_mass_matrix",
     "quad_shape_function_derivatives",
+    "quad_shape_function_matrix",
     "quad_shape_functions",
     "quad_strain_displacement_matrix",
     "strain_from_displacements",
     "stress_from_strain",
+    "triangle_consistent_mass_matrix",
     "triangle_shape_functions",
     "triangle_signed_area",
     "triangle_strain_displacement_matrix",

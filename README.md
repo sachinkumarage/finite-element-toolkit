@@ -2,7 +2,7 @@
 
 An open-source Python toolkit for developing finite element analysis (FEA) capabilities, built incrementally as a series of versioned milestones.
 
-**This is the Version 10 release.** Version 1 established the project's architecture and core domain model. Version 2 added the basic mathematical foundation for FEA. Version 3 turned that into a validated **1D structural analysis** capability (a bar element, `StaticLinearAnalysis`, and results). Version 4 extended the same analysis workflow to **2D truss structures**: two translational DOFs per node, a `TrussElement2D` transformed from local to global coordinates via its direction cosines, and X/Y loads, constraints, displacements, reactions, and member forces. Version 5 added **2D Euler-Bernoulli beam and frame analysis**: a rotational DOF per node, a `FrameElement2D` that resists axial force, shear force, and bending moment, and per-element shear/moment/bending-stress results. Version 6 introduced the toolkit's first true **2D continuum element**: a `CSTElement2D` (3-node constant strain triangle) representing a finite *area* of material rather than a line member, with plane stress/strain constitutive models, a strain-displacement (`B`) matrix, and von Mises/principal stress recovery. Version 7 added a second continuum element, `QuadElement2D` (4-node bilinear quadrilateral, "Q4"): natural coordinates, isoparametric mapping, the Jacobian, and 2x2 Gauss quadrature, needed because -- unlike the CST element -- a Q4 element's strain-displacement matrix has no closed form and varies within the element. Version 8 adds **automatic structured 2D mesh generation**: `create_quad_mesh`/`create_triangular_mesh` turn a rectangular domain and a subdivision count into a fully connected, correctly oriented mesh, plus whole-mesh validation, shape-quality metrics, and a JSON export/import foundation. Version 9 adds a **lightweight 2D geometry foundation and distributed loads**: `Rectangle` with named boundary regions (`"left"`/`"right"`/`"top"`/`"bottom"`), tolerance-based `mesh.nodes_on_boundary()` node selection, generic topological boundary-edge detection, distributed surface tractions converted to equivalent nodal forces by edge integration, boundary-region boundary conditions, and a `LoadCase` workflow abstraction. Version 10 adds a **professional loading system**: `LoadCase` no longer needs a mesh up front, `LoadCombination` combines multiple load cases with load factors (`1.2 * Dead + 1.6 * Live`), `LoadManager` registers and solves every load case/combination for one mesh into a named `ResultSet`, and two new load types -- `GravityLoad` (a body force) and `TemperatureLoad` (uniform thermal expansion) -- join a simple penalty-method `MultiPointConstraint` for tying two DOFs to equal displacement, all built on the unmodified Version 3 solver. It does **not** yet contain CAD/NURBS or curved/3D geometry, temperature gradients, rigid-body constraints, contact, unstructured or CAD-driven meshing, adaptive refinement, higher-order continuum elements, 3D beams, Timoshenko beams, plate, shell, or 3D solid elements, or nonlinear/dynamic analysis, or visualization.
+**This is the Version 11 release.** Version 1 established the project's architecture and core domain model. Version 2 added the basic mathematical foundation for FEA. Version 3 turned that into a validated **1D structural analysis** capability (a bar element, `StaticLinearAnalysis`, and results). Version 4 extended the same analysis workflow to **2D truss structures**: two translational DOFs per node, a `TrussElement2D` transformed from local to global coordinates via its direction cosines, and X/Y loads, constraints, displacements, reactions, and member forces. Version 5 added **2D Euler-Bernoulli beam and frame analysis**: a rotational DOF per node, a `FrameElement2D` that resists axial force, shear force, and bending moment, and per-element shear/moment/bending-stress results. Version 6 introduced the toolkit's first true **2D continuum element**: a `CSTElement2D` (3-node constant strain triangle) representing a finite *area* of material rather than a line member, with plane stress/strain constitutive models, a strain-displacement (`B`) matrix, and von Mises/principal stress recovery. Version 7 added a second continuum element, `QuadElement2D` (4-node bilinear quadrilateral, "Q4"): natural coordinates, isoparametric mapping, the Jacobian, and 2x2 Gauss quadrature, needed because -- unlike the CST element -- a Q4 element's strain-displacement matrix has no closed form and varies within the element. Version 8 adds **automatic structured 2D mesh generation**: `create_quad_mesh`/`create_triangular_mesh` turn a rectangular domain and a subdivision count into a fully connected, correctly oriented mesh, plus whole-mesh validation, shape-quality metrics, and a JSON export/import foundation. Version 9 adds a **lightweight 2D geometry foundation and distributed loads**: `Rectangle` with named boundary regions (`"left"`/`"right"`/`"top"`/`"bottom"`), tolerance-based `mesh.nodes_on_boundary()` node selection, generic topological boundary-edge detection, distributed surface tractions converted to equivalent nodal forces by edge integration, boundary-region boundary conditions, and a `LoadCase` workflow abstraction. Version 10 adds a **professional loading system**: `LoadCase` no longer needs a mesh up front, `LoadCombination` combines multiple load cases with load factors (`1.2 * Dead + 1.6 * Live`), `LoadManager` registers and solves every load case/combination for one mesh into a named `ResultSet`, and two new load types -- `GravityLoad` (a body force) and `TemperatureLoad` (uniform thermal expansion) -- join a simple penalty-method `MultiPointConstraint` for tying two DOFs to equal displacement, all built on the unmodified Version 3 solver. Version 11 adds a **dynamic finite element analysis foundation**: consistent and lumped element mass matrices for CST and Q4, `RayleighDamping`, a `DynamicSystem` abstraction for `M u'' + C u' + K u = F(t)`, time-dependent loads (`ConstantLoad`/`StepLoad`/`SinusoidalLoad`), natural-frequency (modal) analysis via the generalized eigenvalue problem `K phi = lambda M phi` (SciPy-backed), and Newmark-beta time integration through `DynamicAnalysis`. It does **not** yet contain CAD/NURBS or curved/3D geometry, temperature gradients, rigid-body constraints, contact, unstructured or CAD-driven meshing, adaptive refinement, higher-order continuum elements, 3D beams, Timoshenko beams, plate, shell, or 3D solid elements, nonlinear dynamics, modal superposition or frequency-response analysis, or visualization.
 
 ## Current Features
 
@@ -109,6 +109,22 @@ An open-source Python toolkit for developing finite element analysis (FEA) capab
 - **Zero solver changes** — every new load type still reduces to ordinary `NodalLoad`/`BoundaryCondition` objects (or, for multi-point constraints, one small stiffness-matrix augmentation) fed to the unmodified `StaticLinearAnalysis`
 - **Engineering validation** — total-weight reaction checks across mesh densities and element types, free-expansion (zero-stress) and fully-restrained (exact analytical thermal stress) thermal checks, a two-bar-chain multi-point-constraint check against the closed-form single-bar solution, and a load-combination superposition check (see [Version 10](#version-10) below)
 
+**Version 11 — dynamic finite element analysis foundation**
+
+- **Element mass matrices** (`femtoolkit.continuum.mass`) — closed-form consistent mass for CST (`Me = (rho*A*t/12) * [[2,1,1],[1,2,1],[1,1,2]] (kron) I2`), 2x2-Gauss-quadrature consistent mass for Q4, and row-sum lumped mass for both, all exactly mass-conserving (`sum(lumped) == rho*A*t`, verified per element and across a whole assembled mesh)
+- **Material density** — already present since Version 1 (`Material`) and Version 10 (`LinearElastic2D`); Version 11 is the first version to actually consume it, for mass matrices
+- **Global mass assembly** — `assemble_global_mass` reuses the exact same scatter-add logic as `assemble_global_stiffness` (both now call one shared private helper), guaranteeing `M` and `K` share identical global DOF numbering
+- **Rayleigh damping** — `RayleighDamping(alpha=0.01, beta=0.0001)` builds `C = alpha*M + beta*K`, a standard, mathematically convenient proportional-damping model (not a first-principles one)
+- **Dynamic system abstraction** — `DynamicSystem` (mass, damping, stiffness, DOF map, boundary conditions) mirrors `LinearSystem`, deliberately *without* a `forces` field: unlike a static analysis's single fixed `{F}`, a dynamic force is time-varying and supplied fresh at each time step, not stored on the system
+- **Time-dependent loads** — `ConstantLoad`, `StepLoad(magnitude, step_time)`, and `SinusoidalLoad(amplitude, angular_frequency, phase)` all implement `value_at(t)`; `TimeDependentNodalLoad` pairs one with a node/DOF and reuses the existing `build_force_vector` at every time step
+- **Natural frequency (modal) analysis** — `natural_frequencies(K, M, num_modes=...)` solves the generalized eigenvalue problem `K*phi = lambda*M*phi` via SciPy's `eigh` (a new, justified dependency: NumPy alone has no generalized eigensolver, and hand-rolling one would be exactly the "unreliable custom eigenvalue algorithm" to avoid); `natural_frequencies_of_system` adds the free/constrained DOF reduction a real boundary-conditioned model needs
+- **Mode shapes** — normalized so each mode's largest-magnitude component is exactly `1.0`; documented as a comparability convention only, carrying no physical amplitude meaning on its own
+- **Rigid-body modes** — never removed or hidden: `ModalAnalysisResult.is_rigid_body_mode` flags every eigenvalue within `rigid_body_tolerance` of zero, so an expected zero-frequency mode (an underconstrained model) is never confused with the first real vibration mode; a genuinely negative eigenvalue beyond that tolerance raises `EigenvalueComputationError` instead (a sign of an invalid, not rigid-body, matrix)
+- **Newmark-beta time integration** (`femtoolkit.analysis.newmark`) — the standard average-acceleration method (`beta=1/4, gamma=1/2`, unconditionally stable), including the effective-stiffness/effective-force reformulation into a per-step linear solve, verified against closed-form undamped and damped single-DOF solutions to within `1e-3`-`1e-4` absolute error
+- **`DynamicAnalysis`** — mirrors `StaticLinearAnalysis`'s shape (`add_boundary_condition`/`add_time_dependent_load`/`solve`) over a mesh of mass-capable elements; reuses the same free/constrained DOF reduction as the static solver, holding constrained DOFs at their prescribed value with zero velocity/acceleration throughout
+- **Dynamic results** — `DynamicResult` (a new, separate class from `AnalysisResult`) holds full time histories: `time`, `displacement_history`, `velocity_history`, `acceleration_history`, `reaction_history`, plus per-node/DOF query methods returning time series
+- **Engineering validation** — SDOF natural frequency and undamped/damped free-vibration checks against closed-form solutions, a 2-DOF spring-mass eigenproblem checked independently of any FEM model, a small cantilevered-plate FEM modal analysis (finite, positive, ascending frequencies; zero rigid-body modes; mode shapes zero at every constrained DOF), and a step-load dynamic-amplification check (peak response approaches 2x the static displacement) (see [Version 11](#version-11) below)
+
 ## Installation
 
 Clone the repository and install it in editable mode:
@@ -120,6 +136,8 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
 ```
+
+Core dependencies: NumPy (all versions) and, since Version 11, SciPy (for the generalized eigenvalue solver behind natural-frequency analysis, `scipy.linalg.eigh`).
 
 ## Usage
 
@@ -423,6 +441,45 @@ results = manager.solve_all()
 
 print(results.for_load_case("Dead Load").node_reaction(1))  # (1540.17..., 570.85...) N
 print(results.for_combination("Ultimate").node_reaction(1))  # 1.2 * Dead + 1.6 * Live, exactly
+```
+
+Version 11's dynamic foundation: natural frequencies of a cantilevered plate, and a Newmark-beta time-history under a sinusoidal load (see [Version 11](#version-11) below for the theory):
+
+```python
+from femtoolkit.analysis import BoundaryCondition, TranslationDOF
+from femtoolkit.analysis.dynamic_analysis import DynamicAnalysis
+from femtoolkit.analysis.dynamic_loads import SinusoidalLoad, TimeDependentNodalLoad
+from femtoolkit.analysis.dynamic_system import build_dynamic_system
+from femtoolkit.analysis.modal import natural_frequencies_of_system
+from femtoolkit.geometry import Rectangle
+from femtoolkit.materials import LinearElastic2D
+from femtoolkit.mesh import create_quad_mesh
+
+material = LinearElastic2D(
+    youngs_modulus=200e9, poisson_ratio=0.3, formulation="plane_stress", density=7850.0
+)
+domain = Rectangle(width=0.5, height=0.1)
+mesh = create_quad_mesh(width=0.5, height=0.1, nx=10, ny=3, material=material, thickness=0.01)
+fixed_nodes = mesh.nodes_on_boundary(domain.boundary("left"))
+bcs = [
+    BoundaryCondition(node.id, dof, 0.0) for node in fixed_nodes for dof in (0, 1)
+]
+
+# Natural frequencies (modal analysis) -- no new element or solver code:
+system = build_dynamic_system(mesh, bcs)
+modal = natural_frequencies_of_system(system, num_modes=3)
+print(modal.frequencies)  # [334.8..., 1838.8..., 2535.8...] Hz
+print(modal.is_rigid_body_mode)  # [False, False, False] -- fully fixed left edge
+
+# Newmark-beta time-history under a sinusoidal tip load:
+tip_node = max((n for n in mesh.nodes if n.x == 0.5), key=lambda n: n.y)
+analysis = DynamicAnalysis(mesh)
+for bc in bcs:
+    analysis.add_boundary_condition(bc)
+load = SinusoidalLoad(amplitude=50.0, angular_frequency=500.0)
+analysis.add_time_dependent_load(TimeDependentNodalLoad(tip_node.id, TranslationDOF.Y, load))
+result = analysis.solve(time_step=2e-5, total_time=0.02)
+print(result.displacement(tip_node.id, TranslationDOF.Y).shape)  # (1001,) -- full time history
 ```
 
 ## Version 2
@@ -1156,6 +1213,126 @@ Five validation areas in `tests/validation/`: (1) total-weight reaction checks (
 
 Version 10 does not include temperature *gradients* (only a spatially uniform change), rigid-body or contact constraints, nonlinear loads, load-case-dependent (as opposed to load-combination-level) boundary condition scaling, or an exact (non-penalty) multi-point-constraint elimination method. See the [Roadmap](#roadmap).
 
+## Version 11
+
+Every version through Version 10 solves `K u = F`: a structure's equilibrium at one instant, with no notion of *time*, *inertia*, or *vibration*. Version 11 introduces **dynamic finite element analysis**: a structure's mass resists acceleration exactly as its stiffness resists displacement, giving the governing equation of motion
+
+```text
+M u'' + C u' + K u = F(t)
+```
+
+where `M` is the mass matrix, `C` is the damping matrix, and `F(t)` is now a function of time, not a fixed vector. This equation captures **inertia** (why a suddenly applied load overshoots its static displacement before settling -- see the dynamic-amplification validation below), **vibration** (a structure with no external force at all can still oscillate, trading kinetic and strain energy back and forth), **natural frequency** (the frequency a structure "wants" to vibrate at, determined entirely by its own mass and stiffness, `omega_n = sqrt(k/m)` for the simplest case), **resonance** (a forcing frequency near a natural frequency drives large-amplitude response -- not implemented as an analysis capability in this version, but the natural frequencies computed here are exactly what a resonance check would compare a forcing frequency against), and **damping** (energy dissipation that keeps real vibration from growing without bound, absent from `M u'' + K u = 0`'s idealized undamped case).
+
+```text
+Mesh -> Mass Matrix (M) + Stiffness Matrix (K) + Damping Matrix (C)
+    -> DynamicSystem
+    -> Natural Frequency Analysis (K phi = lambda M phi)
+       OR
+    -> Newmark-Beta Time Integration (M u'' + C u' + K u = F(t))
+    -> Dynamic Results (time histories / mode shapes)
+```
+
+### Mass matrices: consistent and lumped
+
+Just as the stiffness matrix comes from an element's strain-displacement matrix `B`, the mass matrix comes from its shape function matrix `N` (values, not derivatives) weighted by density:
+
+```text
+Me = integral( rho * N^T * N * t ) dA
+```
+
+The **consistent** mass matrix uses this integral directly -- physically accurate, but fully coupled (every DOF inertially coupled to every other). For **CST**, the triangle's area-coordinate shape functions integrate in closed form (`integral(Li^a * Lj^b * Lk^c) dA = 2A * a!b!c!/(a+b+c+2)!`), giving the well-known `(rho*A*t/12) * [[2,1,1],[1,2,1],[1,1,2]]` pattern (expanded to 2 DOFs/node). For **Q4**, the same 2x2 Gauss quadrature used for stiffness is reused.
+
+The **lumped** mass matrix instead distributes each element's total mass directly onto its DOFs, via row-sum lumping: each diagonal entry is the sum of its row in the consistent matrix. This is mass-conserving by construction (shape functions sum to 1 everywhere, so a row-sum block always totals `rho*A*t`) and trivially invertible, at the cost of being a diagonal *approximation* -- it does not reproduce the same natural frequencies as the consistent matrix (verified, not just asserted, in `tests/validation/test_fem_dynamic_validation.py`). Select either via `mass_matrix_type="consistent"` (default) or `"lumped"`.
+
+### Global mass assembly
+
+`assemble_global_mass` scatters element mass contributions into a global matrix using the *exact same* logic as `assemble_global_stiffness` (both now call one shared private helper) -- guaranteeing `M` and `K` share identical global DOF numbering, which is what lets `DynamicSystem` combine them directly without any re-indexing.
+
+### Rayleigh damping
+
+```text
+C = alpha * M + beta * K
+```
+
+`alpha` (mass-proportional) damps low-frequency motion more; `beta` (stiffness-proportional) damps high-frequency motion more. Neither has a direct physical unit interpretation on its own -- Rayleigh damping is a mathematically convenient engineering approximation (calibrated to match a target damping ratio at one or two frequencies of interest), not a first-principles damping model.
+
+### The dynamic system
+
+`DynamicSystem` (mass, damping, stiffness, DOF map, boundary conditions) mirrors `LinearSystem` (Version 2) -- but deliberately has **no `forces` field**. A static analysis's `{F}` is one fixed vector; a dynamic analysis's force is inherently time-varying, evaluated fresh at every time step from registered `TimeDependentNodalLoad`s rather than stored on the system.
+
+### Time-dependent loads
+
+```text
+F(t) = F0                              ConstantLoad
+F(t) = 0 (t < t0), F0 (t >= t0)        StepLoad(magnitude, step_time)
+F(t) = F0 * sin(omega*t + phase)       SinusoidalLoad(amplitude, angular_frequency, phase)
+```
+
+`TimeDependentNodalLoad` pairs one of these with a node/DOF; `.nodal_load_at(t)` evaluates it into an ordinary `NodalLoad`, which is how `DynamicAnalysis` reuses the unmodified `build_force_vector` (Version 2) at every time step instead of duplicating force-assembly logic.
+
+### Natural frequency analysis and the generalized eigenvalue problem
+
+Free, undamped vibration follows `M u'' + K u = 0`. Seeking a harmonic solution `u(t) = phi * sin(omega*t)` gives the **generalized eigenvalue problem**:
+
+```text
+K phi = lambda * M phi          (lambda = omega^2)
+omega = sqrt(lambda)            (natural circular frequency, rad/s)
+f = omega / (2*pi)              (natural frequency, Hz)
+```
+
+`natural_frequencies(K, M, num_modes=...)` solves this with **SciPy's `scipy.linalg.eigh`** in its generalized form -- a new, explicitly justified dependency: NumPy alone has no generalized eigenvalue solver, and hand-rolling one (e.g. a manual Cholesky reduction to a standard eigenvalue problem) would itself be exactly the "unreliable custom eigenvalue algorithm" this module deliberately avoids. `natural_frequencies_of_system` adds the free/constrained DOF reduction a real boundary-conditioned model needs (removing constrained DOFs before solving, then expanding mode shapes back with zeros at those DOFs).
+
+### Mode shapes
+
+Each mode shape is normalized so its largest-magnitude component equals exactly `1.0` -- a convention chosen for comparability between modes and against hand calculations, **not** a physical amplitude: a mode shape's absolute scale carries no meaning on its own (only its *ratios* between DOFs do), and its overall sign is arbitrary (an eigenvector and its negative describe the same mode). Actual vibration amplitude depends on initial conditions or applied forcing, which modal analysis alone does not determine.
+
+### Rigid-body modes
+
+An insufficiently constrained model has eigenvalues at or near zero -- **rigid-body modes**: the structure can translate/rotate as a whole with no strain energy, not physical vibration. These are never removed or hidden: `ModalAnalysisResult.is_rigid_body_mode` flags every eigenvalue within `rigid_body_tolerance` (default `1e-6`, in `(rad/s)^2`) of zero, so callers can tell "this is an expected rigid-body mode" from "this is the first real vibration mode" explicitly. A small *negative* eigenvalue within that same tolerance is floating-point noise around an exact zero and is clipped before computing frequencies (a negative number has no real square root); a negative eigenvalue *larger* than the tolerance is not noise -- it means `K` or `M` was not assembled correctly, and raises `EigenvalueComputationError`.
+
+### Newmark-beta time integration
+
+Assuming acceleration varies linearly over a time step (parameterized by `beta` and `gamma`) turns the dynamic equation, at every step, into an **effective static problem**:
+
+```text
+K_eff u_(n+1) = F_eff
+
+K_eff = K + (gamma/(beta*dt)) * C + (1/(beta*dt^2)) * M
+
+F_eff = F_(n+1)
+      + M * [ (1/(beta*dt^2))*u_n + (1/(beta*dt))*v_n + (1/(2*beta) - 1)*a_n ]
+      + C * [ (gamma/(beta*dt))*u_n + (gamma/beta - 1)*v_n + dt*(gamma/(2*beta) - 1)*a_n ]
+```
+
+`u_(n+1)` comes from an ordinary linear solve; `a_(n+1)` and `v_(n+1)` follow directly:
+
+```text
+a_(n+1) = (1/(beta*dt^2))*(u_(n+1)-u_n) - (1/(beta*dt))*v_n - (1/(2*beta)-1)*a_n
+v_(n+1) = v_n + dt*[ (1-gamma)*a_n + gamma*a_(n+1) ]
+```
+
+Version 11 uses only the standard `beta=1/4, gamma=1/2` **average-acceleration method** -- unconditionally stable for a linear system regardless of time-step size (deliberately the only scheme implemented; see the [Roadmap](#roadmap)). Verified against closed-form undamped (`u(t) = u0*cos(omega_n*t)`) and damped (exponentially decaying sinusoid) single-DOF solutions to within `1e-3`-`1e-4` absolute error over multiple periods, with amplitude neither growing nor artificially decaying in the undamped case.
+
+### `DynamicAnalysis`
+
+Mirrors `StaticLinearAnalysis`'s shape on purpose: build one against a mesh, register boundary conditions and time-dependent loads with `add_*` methods, call `solve(time_step, total_time)`. Boundary conditions use the *same* free/constrained DOF partition as the static solver: a constrained DOF's prescribed value is held constant for the whole simulation (velocity and acceleration are zero there throughout -- time-varying prescribed displacement/support motion is out of scope for this version), and only the free-DOF submatrices enter the Newmark effective-stiffness solve, exactly mirroring how `analysis/system.py` reduces the static system.
+
+### Dynamic results
+
+`DynamicResult` is a new, separate class from `AnalysisResult` -- not a subclass or modification of it, so every static result from Versions 1-10 is completely unaffected. It holds full time histories (`time`, `displacement_history`, `velocity_history`, `acceleration_history`, `reaction_history`) plus per-node/DOF query methods (`displacement(node_id, dof)`, etc.) that return a time series instead of a single scalar. Reactions are computed as `R(t) = M*a(t) + C*v(t) + K*u(t) - F(t)`, the dynamic analogue of the static `R = K*u - F`.
+
+### Units
+
+Mass in kilograms, damping coefficients `alpha` (1/s) and `beta` (s), angular frequency in rad/s, frequency in Hz, time in seconds -- consistent with the SI convention maintained since Version 1.
+
+### Engineering validation
+
+Four validation areas in `tests/validation/`: (1) an SDOF oscillator's natural frequency, undamped free vibration, and damped free vibration, each checked against closed-form analytical solutions, plus a static-limit check (a constant force's response converges to `F0/k`); (2) a 2-DOF spring-mass eigenproblem (`K = [[2,-1],[-1,1]], M = I`) solved independently of any finite element model, with eigenvalues matching the exact golden-ratio-related roots `(3 +- sqrt(5))/2`; (3) a small cantilevered Q4 plate's mass matrix (total mass matches `rho*area*thickness` exactly), stiffness matrix, natural frequencies (finite, positive, ascending, no rigid-body modes), and mode shapes (normalized, zero at every constrained DOF); (4) a step-load dynamic-amplification check -- an undamped structure's peak response to a suddenly applied constant force approaches twice its static displacement, the classical closed-form result, alongside a Rayleigh-damping check that the same response visibly decays when damping is added (see [Version 11](#version-11) above).
+
+### Limitations
+
+Version 11 does not include nonlinear dynamics, contact dynamics, explicit (central-difference) time integration, modal superposition or harmonic/frequency-response analysis, random vibration, buckling, 3D elements or 3D dynamics, time-varying (support-motion) boundary conditions, or an advanced sparse-matrix solver (dense NumPy/SciPy throughout -- appropriate for this version's problem sizes; sparse infrastructure is future-version scope). See the [Roadmap](#roadmap).
+
 ## Project Structure
 
 ```text
@@ -1179,7 +1356,8 @@ finite-element-toolkit/
 │   │                       # strain-displacement (B) matrix, plane
 │   │                       # stress/strain constitutive (D) matrices,
 │   │                       # stress/von Mises/principal stress recovery,
-│   │                       # edge.py (equivalent nodal force integration)
+│   │                       # edge.py (equivalent nodal force integration),
+│   │                       # mass.py (consistent/lumped element mass matrices)
 │   ├── analysis/           # DOFs (incl. RotationDOF), boundary conditions
 │   │                       # (incl. boundary_conditions_for_region),
 │   │                       # loads, distributed_load.py (DistributedLoad,
@@ -1191,12 +1369,23 @@ finite-element-toolkit/
 │   │                       # load_case.py (LoadCase, mesh-optional),
 │   │                       # load_combination.py (LoadCombination),
 │   │                       # load_manager.py (LoadManager), stiffness matrix,
-│   │                       # transformation matrix, assembly, linear system,
+│   │                       # transformation matrix, assembly (incl.
+│   │                       # assemble_global_mass), linear system,
 │   │                       # the AssemblableElement/StructuralElement/
 │   │                       # FrameStructuralElement/ContinuumElement
-│   │                       # protocols, and the StaticLinearAnalysis workflow
+│   │                       # protocols, the StaticLinearAnalysis workflow,
+│   │                       # mass.py (element mass dispatch), damping.py
+│   │                       # (RayleighDamping), dynamic_loads.py
+│   │                       # (ConstantLoad/StepLoad/SinusoidalLoad,
+│   │                       # TimeDependentNodalLoad), dynamic_system.py
+│   │                       # (DynamicSystem, build_dynamic_system),
+│   │                       # modal.py (natural_frequencies,
+│   │                       # natural_frequencies_of_system), newmark.py
+│   │                       # (Newmark-beta step math), dynamic_analysis.py
+│   │                       # (DynamicAnalysis)
 │   ├── results/            # AnalysisResult, FrameEndForces, FrameElementForces,
-│   │                       # ResultSet (named load case/combination results)
+│   │                       # ResultSet (named load case/combination results),
+│   │                       # DynamicResult (time-history results)
 │   ├── units/               # SI unit constants
 │   ├── exceptions/          # Custom exception types (incl. DegenerateElementError,
 │   │                       # DuplicateNodeCoordinatesError)
@@ -1256,13 +1445,17 @@ python examples/gravity_loading.py            # Version 10: self-weight (gravity
 python examples/temperature_loading.py        # Version 10: free vs. fully-restrained thermal expansion
 python examples/load_combinations.py          # Version 10: factored load combinations + superposition check
 python examples/multi_point_constraints.py    # Version 10: tying two independently meshed bar chains
+python examples/single_dof_vibration.py       # Version 11: SDOF natural frequency + free vibration
+python examples/natural_frequency_analysis.py # Version 11: FEM modal analysis, mass/stiffness/mode shapes
+python examples/newmark_dynamic_analysis.py   # Version 11: Newmark-beta time history under a sinusoidal load
+python examples/damped_vibration.py           # Version 11: Rayleigh damping and decaying vibration
 ```
 
 ## Roadmap
 
 Future versions will build a more complete FEA solver on top of this foundation. None of the following is implemented yet:
 
-- **Version 11** — Dynamic finite element analysis: mass matrices, damping matrices, time integration, natural frequencies, free and forced vibration
+- **Version 12** — Advanced dynamic analysis: modal superposition, harmonic/frequency-response analysis, frequency-domain loading, response spectra, more advanced damping models, dynamic post-processing
 - **Later** — Unstructured/CAD-driven meshing, 3D elements, higher-order continuum elements, nonlinear analysis, GUI, visualization, reporting, and more
 
 ## License

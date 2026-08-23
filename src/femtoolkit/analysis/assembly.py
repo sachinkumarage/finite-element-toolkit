@@ -1,16 +1,21 @@
-"""Global stiffness matrix assembly.
+"""Global stiffness and mass matrix assembly.
 
 A structure is modeled as several elements connected at shared nodes.
-Each element only "knows" about its own local stiffness matrix; the
-**assembly** step maps each element's local degrees of freedom onto the
-structure's global degrees of freedom and sums the contributions into a
-single global stiffness matrix.
+Each element only "knows" about its own local stiffness (or mass)
+matrix; the **assembly** step maps each element's local degrees of
+freedom onto the structure's global degrees of freedom and sums the
+contributions into a single global matrix.
 
 Assembly is deliberately independent of any specific element type: a
-contribution is just a local stiffness matrix tagged with the
+contribution is just a local square matrix tagged with the
 ``(node_id, dof)`` pair each row/column corresponds to. This lets the
-same assembly logic serve a 1D bar element (two axial DOFs) and a 2D
-truss element (four X/Y DOFs) without duplicating the scatter loop.
+same scatter logic serve a 1D bar element (two axial DOFs) and a 2D
+truss element (four X/Y DOFs) without duplicating the loop --
+:func:`assemble_global_stiffness` (Version 2) and
+:func:`assemble_global_mass` (Version 11) are both thin wrappers over
+the same private :func:`_assemble_global_matrix`, so the global mass
+matrix is guaranteed to use the exact same global DOF numbering as the
+global stiffness matrix, built from the same ``dof_map``.
 """
 
 from __future__ import annotations
@@ -38,6 +43,53 @@ class ElementStiffnessContribution(NamedTuple):
 
     dof_keys: tuple[tuple[int, int], ...]
     stiffness: np.ndarray
+
+
+class ElementMassContribution(NamedTuple):
+    """One element's local mass matrix, tagged with its global DOF keys.
+
+    Attributes:
+        dof_keys: One ``(node_id, dof)`` pair per row/column of ``mass``,
+            in matching order -- the same convention as
+            :class:`ElementStiffnessContribution`, typically built from
+            the same element's ``dof_keys()``.
+        mass: The element's local mass matrix (see
+            :mod:`femtoolkit.analysis.mass`), square with size
+            ``len(dof_keys)``.
+    """
+
+    dof_keys: tuple[tuple[int, int], ...]
+    mass: np.ndarray
+
+
+def _assemble_global_matrix(
+    dof_map: DOFMap,
+    contributions: Sequence[tuple[tuple[tuple[int, int], ...], np.ndarray]],
+    matrix_label: str,
+) -> np.ndarray:
+    """Scatter-add a sequence of ``(dof_keys, local_matrix)`` pairs into a global matrix.
+
+    Shared by :func:`assemble_global_stiffness` and
+    :func:`assemble_global_mass`; ``matrix_label`` only affects error
+    messages.
+    """
+    global_matrix = np.zeros((dof_map.total_dofs, dof_map.total_dofs))
+
+    for dof_keys, local_matrix in contributions:
+        expected_shape = (len(dof_keys), len(dof_keys))
+        if local_matrix.shape != expected_shape:
+            raise ValidationError(
+                f"Element {matrix_label} matrix must have shape {expected_shape} to "
+                f"match {len(dof_keys)} dof_keys, got {local_matrix.shape}."
+            )
+
+        global_indices = [dof_map.global_index(node_id, dof) for node_id, dof in dof_keys]
+
+        for local_row, global_row in enumerate(global_indices):
+            for local_col, global_col in enumerate(global_indices):
+                global_matrix[global_row, global_col] += local_matrix[local_row, local_col]
+
+    return global_matrix
 
 
 def assemble_global_stiffness(
@@ -79,20 +131,36 @@ def assemble_global_stiffness(
         ...     ],
         ... )
     """
-    global_stiffness = np.zeros((dof_map.total_dofs, dof_map.total_dofs))
+    return _assemble_global_matrix(dof_map, contributions, matrix_label="stiffness")
 
-    for dof_keys, local_stiffness in contributions:
-        expected_shape = (len(dof_keys), len(dof_keys))
-        if local_stiffness.shape != expected_shape:
-            raise ValidationError(
-                f"Element stiffness matrix must have shape {expected_shape} to "
-                f"match {len(dof_keys)} dof_keys, got {local_stiffness.shape}."
-            )
 
-        global_indices = [dof_map.global_index(node_id, dof) for node_id, dof in dof_keys]
+def assemble_global_mass(
+    dof_map: DOFMap,
+    contributions: Sequence[ElementMassContribution],
+) -> np.ndarray:
+    """Assemble a global mass matrix from element contributions.
 
-        for local_row, global_row in enumerate(global_indices):
-            for local_col, global_col in enumerate(global_indices):
-                global_stiffness[global_row, global_col] += local_stiffness[local_row, local_col]
+    Identical scatter-add logic to :func:`assemble_global_stiffness`,
+    over the same ``dof_map`` -- the global mass matrix this produces is
+    guaranteed to line up DOF-for-DOF with a global stiffness matrix
+    assembled from the same ``dof_map``, which is what lets
+    :class:`~femtoolkit.analysis.dynamic_system.DynamicSystem` combine
+    them directly.
 
-    return global_stiffness
+    Args:
+        dof_map: DOF map describing the global DOF numbering for all
+            nodes involved (the same one used for stiffness assembly).
+        contributions: One :class:`ElementMassContribution` per element
+            in the model.
+
+    Returns:
+        The assembled global mass matrix, of shape
+        ``(dof_map.total_dofs, dof_map.total_dofs)``.
+
+    Raises:
+        ValidationError: If a contribution's mass matrix shape does not
+            match its number of ``dof_keys``.
+        EntityNotFoundError: If a contribution references a node ID that
+            is not part of ``dof_map``.
+    """
+    return _assemble_global_matrix(dof_map, contributions, matrix_label="mass")

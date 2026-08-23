@@ -74,13 +74,29 @@ Finally, :class:`~femtoolkit.analysis.multi_point_constraint.MultiPointConstrain
 ties two DOFs to equal displacement via a penalty-stiffness augmentation
 of the global stiffness matrix, with zero changes to
 :class:`~femtoolkit.analysis.static_linear.StaticLinearAnalysis`'s
-assembly/reduction pipeline.
+assembly/reduction pipeline. Version 11 extends the toolkit from static
+into **dynamic** finite element analysis: element and global mass
+matrices (:mod:`femtoolkit.continuum.mass`, :mod:`femtoolkit.analysis.mass`,
+consistent or lumped, for CST and Q4), Rayleigh damping
+(:class:`~femtoolkit.analysis.damping.RayleighDamping`), the dynamic
+system abstraction ``M u'' + C u' + K u = F(t)``
+(:class:`~femtoolkit.analysis.dynamic_system.DynamicSystem`),
+time-dependent loads (:mod:`femtoolkit.analysis.dynamic_loads`), natural
+frequency (modal) analysis via the generalized eigenvalue problem
+``K phi = lambda M phi`` (:mod:`femtoolkit.analysis.modal`, using SciPy's
+``eigh`` for a numerically robust solve), and Newmark-beta time
+integration (:mod:`femtoolkit.analysis.newmark`,
+:class:`~femtoolkit.analysis.dynamic_analysis.DynamicAnalysis`). All of
+it is built on the unmodified Version 2 DOF mapping and assembly
+machinery and the unmodified Version 3-10 mesh, material, geometry, and
+loading abstractions -- static analysis is completely unaffected.
 
 The toolkit does not yet implement CAD or NURBS geometry, curved or 3D
 geometry, unstructured or CAD-driven meshing, adaptive mesh refinement,
 higher-order continuum elements, 3D beams, Timoshenko beams, plate,
 shell, or 3D solid elements, temperature gradients, rigid-body
-constraints, contact, nonlinear or dynamic analysis, or visualization.
+constraints, contact, nonlinear dynamics, modal superposition or
+frequency-response analysis, or visualization.
 """
 
 from femtoolkit import logging_config  # noqa: F401  (attaches NullHandler on import)

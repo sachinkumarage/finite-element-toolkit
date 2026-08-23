@@ -6,8 +6,10 @@ from numpy.testing import assert_allclose
 
 from femtoolkit.analysis import (
     DOFMap,
+    ElementMassContribution,
     ElementStiffnessContribution,
     TranslationDOF,
+    assemble_global_mass,
     assemble_global_stiffness,
     bar_element_stiffness,
 )
@@ -125,3 +127,81 @@ def test_assemble_rejects_unknown_node() -> None:
         assemble_global_stiffness(
             dof_map, [ElementStiffnessContribution(((1, X), (99, X)), local_stiffness)]
         )
+
+
+# --- Version 11: assemble_global_mass ---
+
+
+def test_assemble_global_mass_single_element() -> None:
+    dof_map = DOFMap(node_ids=[1, 2], dofs_per_node=1)
+    local_mass = np.array([[2.0, 1.0], [1.0, 2.0]])
+
+    global_mass = assemble_global_mass(
+        dof_map, [ElementMassContribution(((1, X), (2, X)), local_mass)]
+    )
+
+    assert global_mass.shape == (2, 2)
+    assert_allclose(global_mass, local_mass)
+
+
+def test_assemble_global_mass_two_element_chain_sums_shared_node() -> None:
+    dof_map = DOFMap(node_ids=[1, 2, 3], dofs_per_node=1)
+    m1 = np.array([[2.0, 1.0], [1.0, 2.0]])
+    m2 = np.array([[3.0, 0.5], [0.5, 3.0]])
+
+    global_mass = assemble_global_mass(
+        dof_map,
+        [
+            ElementMassContribution(((1, X), (2, X)), m1),
+            ElementMassContribution(((2, X), (3, X)), m2),
+        ],
+    )
+
+    expected = np.array(
+        [
+            [2.0, 1.0, 0.0],
+            [1.0, 5.0, 0.5],
+            [0.0, 0.5, 3.0],
+        ]
+    )
+    assert_allclose(global_mass, expected)
+
+
+def test_assemble_global_mass_uses_same_dof_numbering_as_stiffness() -> None:
+    """Mass and stiffness assembled from the same dof_map and dof_keys
+    must line up DOF-for-DOF -- the property DynamicSystem depends on.
+    """
+    dof_map = DOFMap(node_ids=[1, 2, 3], dofs_per_node=2)
+    dof_keys = (
+        (1, TranslationDOF.X),
+        (1, TranslationDOF.Y),
+        (2, TranslationDOF.X),
+        (2, TranslationDOF.Y),
+    )
+    local_stiffness = np.eye(4) * 100.0
+    local_mass = np.eye(4) * 5.0
+
+    global_stiffness = assemble_global_stiffness(
+        dof_map, [ElementStiffnessContribution(dof_keys, local_stiffness)]
+    )
+    global_mass = assemble_global_mass(dof_map, [ElementMassContribution(dof_keys, local_mass)])
+
+    nonzero_stiffness = set(zip(*np.nonzero(global_stiffness), strict=True))
+    nonzero_mass = set(zip(*np.nonzero(global_mass), strict=True))
+    assert nonzero_stiffness == nonzero_mass
+
+
+def test_assemble_global_mass_rejects_wrong_shaped_matrix() -> None:
+    dof_map = DOFMap(node_ids=[1, 2], dofs_per_node=1)
+    bad_matrix = np.zeros((3, 3))
+
+    with pytest.raises(ValidationError):
+        assemble_global_mass(dof_map, [ElementMassContribution(((1, X), (2, X)), bad_matrix)])
+
+
+def test_assemble_global_mass_rejects_unknown_node() -> None:
+    dof_map = DOFMap(node_ids=[1, 2], dofs_per_node=1)
+    local_mass = np.array([[2.0, 1.0], [1.0, 2.0]])
+
+    with pytest.raises(EntityNotFoundError):
+        assemble_global_mass(dof_map, [ElementMassContribution(((1, X), (99, X)), local_mass)])

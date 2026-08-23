@@ -96,5 +96,19 @@ class SingularSystemError(FiniteElementToolkitError):
     This typically indicates that the structure is a mechanism: even
     though boundary conditions were supplied, the free degrees of freedom
     are not fully restrained (for example, a substructure that is not
-    connected to any support).
+    connected to any support). Also raised when a Newmark-beta dynamic
+    analysis's reduced *effective* stiffness matrix is singular, the
+    dynamic analogue of the same failure mode.
+    """
+
+
+class EigenvalueComputationError(FiniteElementToolkitError):
+    """Raised when a generalized eigenvalue (natural frequency) solve fails.
+
+    Covers both an outright numerical failure of the underlying
+    LAPACK-based solver (e.g. the mass matrix is not positive definite)
+    and a solved eigenvalue that is negative by more than the caller's
+    rigid-body tolerance -- physically impossible for a valid ``K``/``M``
+    pair, and a strong signal that the stiffness or mass matrix supplied
+    was not built correctly (e.g. mismatched DOF ordering).
     """
