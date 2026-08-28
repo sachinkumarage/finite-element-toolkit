@@ -8,7 +8,18 @@ from numpy.testing import assert_allclose
 
 from femtoolkit.analysis import BoundaryCondition, TranslationDOF
 from femtoolkit.analysis.dynamic_system import build_dynamic_system
-from femtoolkit.analysis.modal import natural_frequencies, natural_frequencies_of_system
+from femtoolkit.analysis.modal import (
+    compute_periods,
+    effective_modal_mass,
+    effective_modal_mass_ratio,
+    influence_vector,
+    mass_normalize_mode_shapes,
+    modal_analysis,
+    modal_analysis_of_system,
+    modal_participation_factors,
+    natural_frequencies,
+    natural_frequencies_of_system,
+)
 from femtoolkit.exceptions import EigenvalueComputationError, ValidationError
 from femtoolkit.geometry import Rectangle
 from femtoolkit.materials import LinearElastic2D
@@ -209,3 +220,275 @@ def test_natural_frequencies_of_system_all_constrained_raises() -> None:
 
     with pytest.raises(ValidationError):
         natural_frequencies_of_system(system)
+
+
+# --- Version 12: mass normalization ---
+
+
+def test_mass_normalize_mode_shapes_satisfies_phi_t_m_phi_equals_one(two_dof_system) -> None:
+    k, m = two_dof_system
+    result = natural_frequencies(k, m)
+    normalized = mass_normalize_mode_shapes(result.mode_shapes, m)
+
+    for i in range(2):
+        phi = normalized[:, i]
+        assert_allclose(phi @ m @ phi, 1.0, atol=1e-12)
+
+
+def test_mass_normalization_is_invariant_to_input_scale(two_dof_system) -> None:
+    """Mass-normalizing an arbitrarily rescaled mode shape gives the
+    same result (up to sign) as normalizing the default-scaled one.
+    """
+    k, m = two_dof_system
+    result = natural_frequencies(k, m)
+    normalized_default = mass_normalize_mode_shapes(result.mode_shapes, m)
+
+    rescaled = result.mode_shapes * np.array([3.0, -7.0])
+    normalized_rescaled = mass_normalize_mode_shapes(rescaled, m)
+
+    for i in range(2):
+        # Same up to sign: compare absolute values, or align signs first.
+        ratio = normalized_rescaled[:, i] / normalized_default[:, i]
+        assert_allclose(np.abs(ratio), np.ones(2), atol=1e-9)
+
+
+def test_mass_normalize_does_not_mutate_input(two_dof_system) -> None:
+    k, m = two_dof_system
+    result = natural_frequencies(k, m)
+    original = result.mode_shapes.copy()
+    mass_normalize_mode_shapes(result.mode_shapes, m)
+    assert_allclose(result.mode_shapes, original)
+
+
+# --- Version 12: modal orthogonality ---
+
+
+def test_mass_and_stiffness_orthogonality_two_dof(two_dof_system) -> None:
+    k, m = two_dof_system
+    result = natural_frequencies(k, m)
+    phi = mass_normalize_mode_shapes(result.mode_shapes, m)
+
+    mass_modal = phi.T @ m @ phi
+    stiffness_modal = phi.T @ k @ phi
+
+    assert_allclose(mass_modal, np.eye(2), atol=1e-10)
+    assert_allclose(stiffness_modal, np.diag(result.eigenvalues), atol=1e-8)
+
+
+def test_mass_and_stiffness_orthogonality_fem(cantilever_dynamic_system) -> None:
+    """Off-diagonal generalized mass/stiffness terms between distinct
+    FEM modes are (numerically) zero -- the general orthogonality
+    property, not specific to the 2-DOF analytical case.
+    """
+    system = cantilever_dynamic_system
+    result = natural_frequencies_of_system(system, num_modes=5)
+    phi = mass_normalize_mode_shapes(result.mode_shapes, system.mass)
+
+    mass_modal = phi.T @ system.mass @ phi
+    stiffness_modal = phi.T @ system.stiffness @ phi
+
+    off_diagonal_mass = mass_modal - np.diag(np.diag(mass_modal))
+    off_diagonal_stiffness = stiffness_modal - np.diag(np.diag(stiffness_modal))
+
+    assert_allclose(off_diagonal_mass, np.zeros((5, 5)), atol=1e-8)
+    assert_allclose(off_diagonal_stiffness, np.zeros((5, 5)), atol=1.0)
+    assert_allclose(np.diag(mass_modal), np.ones(5), atol=1e-8)
+    assert_allclose(np.diag(stiffness_modal), result.eigenvalues, rtol=1e-6)
+
+
+# --- Version 12: periods ---
+
+
+def test_compute_periods_matches_two_pi_over_omega() -> None:
+    omega = np.array([1.0, 2.0, 10.0])
+    is_rigid = np.array([False, False, False])
+    periods = compute_periods(omega, is_rigid)
+    assert_allclose(periods, 2.0 * math.pi / omega)
+
+
+def test_compute_periods_rigid_body_mode_is_infinite() -> None:
+    omega = np.array([0.0, 5.0])
+    is_rigid = np.array([True, False])
+    periods = compute_periods(omega, is_rigid)
+    assert periods[0] == math.inf
+    assert_allclose(periods[1], 2.0 * math.pi / 5.0)
+
+
+# --- Version 12: influence vectors ---
+
+
+def test_influence_vector_x_direction(cantilever_dynamic_system) -> None:
+    system = cantilever_dynamic_system
+    r = influence_vector(system.dof_map, "x")
+    for node_id in system.dof_map.node_ids:
+        assert r[system.dof_map.global_index(node_id, TranslationDOF.X)] == 1.0
+        assert r[system.dof_map.global_index(node_id, TranslationDOF.Y)] == 0.0
+
+
+def test_influence_vector_case_insensitive(cantilever_dynamic_system) -> None:
+    system = cantilever_dynamic_system
+    assert_allclose(influence_vector(system.dof_map, "X"), influence_vector(system.dof_map, "x"))
+
+
+def test_influence_vector_rejects_invalid_direction(cantilever_dynamic_system) -> None:
+    with pytest.raises(ValidationError):
+        influence_vector(cantilever_dynamic_system.dof_map, "z")
+
+
+# --- Version 12: modal participation factors and effective modal mass ---
+
+
+def test_participation_factor_times_mode_shape_is_normalization_invariant(
+    two_dof_system,
+) -> None:
+    """A bare Gamma_i is normalization-dependent (see the function's
+    docstring), but the physical contribution Gamma_i * phi_i is not:
+    computing it from the default-scaled mode shapes or from the
+    mass-normalized ones must give the same vector.
+    """
+    k, m = two_dof_system
+    result = natural_frequencies(k, m)
+    r = np.array([1.0, 0.0])
+
+    default_shapes = result.mode_shapes
+    mass_normalized = mass_normalize_mode_shapes(default_shapes, m)
+
+    gamma_default = modal_participation_factors(default_shapes, m, r)
+    gamma_mass_normalized = modal_participation_factors(mass_normalized, m, r)
+
+    for i in range(2):
+        contribution_default = gamma_default[i] * default_shapes[:, i]
+        contribution_mass_normalized = gamma_mass_normalized[i] * mass_normalized[:, i]
+        assert_allclose(contribution_default, contribution_mass_normalized, rtol=1e-9)
+
+
+def test_mass_normalized_participation_factor_matches_shortcut_formula(two_dof_system) -> None:
+    """For already mass-normalized mode shapes, Gamma_i reduces exactly
+    to phi_i^T * M * r (no division by generalized mass needed, since
+    it is already 1).
+    """
+    k, m = two_dof_system
+    result = natural_frequencies(k, m)
+    r = np.array([1.0, 0.0])
+
+    mass_normalized = mass_normalize_mode_shapes(result.mode_shapes, m)
+    general = modal_participation_factors(mass_normalized, m, r)
+    shortcut = np.array([mass_normalized[:, i] @ m @ r for i in range(2)])
+
+    assert_allclose(general, shortcut, rtol=1e-9)
+
+
+def test_effective_modal_mass_mass_normalized_shortcut(two_dof_system) -> None:
+    k, m = two_dof_system
+    result = natural_frequencies(k, m)
+    r = np.array([1.0, 0.0])
+
+    participation = modal_participation_factors(result.mode_shapes, m, r)
+    eff_mass = effective_modal_mass(participation, result.mode_shapes, m)
+
+    # For mass-normalized modes, M_eff,i = Gamma_i^2 exactly.
+    mass_normalized = mass_normalize_mode_shapes(result.mode_shapes, m)
+    participation_mn = modal_participation_factors(mass_normalized, m, r)
+    assert_allclose(eff_mass, participation_mn**2, rtol=1e-9)
+
+
+def test_effective_modal_mass_ratio_sums_to_one_over_all_modes(two_dof_system) -> None:
+    k, m = two_dof_system
+    r = np.array([1.0, 0.0])
+    result = modal_analysis(k, m, direction=r)
+
+    assert_allclose(result.cumulative_mass_ratio[-1], 1.0, rtol=1e-9)
+
+
+def test_effective_modal_mass_ratio_rejects_zero_direction(two_dof_system) -> None:
+    k, m = two_dof_system
+    with pytest.raises(ValidationError):
+        effective_modal_mass_ratio(np.array([1.0, 2.0]), m, np.zeros(2))
+
+
+# --- Version 12: modal_analysis (raw arrays) ---
+
+
+def test_modal_analysis_bundles_periods_and_mass_normalized_shapes(two_dof_system) -> None:
+    k, m = two_dof_system
+    result = modal_analysis(stiffness_matrix=k, mass_matrix=m, num_modes=2)
+
+    assert result.periods.shape == (2,)
+    assert result.mass_normalized_mode_shapes.shape == (2, 2)
+    assert result.participation_factors is None
+    assert result.effective_modal_mass is None
+
+
+def test_modal_analysis_direction_wrong_length_raises(two_dof_system) -> None:
+    k, m = two_dof_system
+    with pytest.raises(ValidationError):
+        modal_analysis(k, m, direction=np.array([1.0, 0.0, 0.0]))
+
+
+def test_modal_result_properties_delegate_to_base(two_dof_system) -> None:
+    k, m = two_dof_system
+    base = natural_frequencies(k, m)
+    result = modal_analysis(k, m)
+
+    assert_allclose(result.eigenvalues, base.eigenvalues)
+    assert_allclose(result.angular_frequencies, base.angular_frequencies)
+    assert_allclose(result.frequencies, base.frequencies)
+    assert_allclose(result.mode_shapes, base.mode_shapes)
+    assert_allclose(result.is_rigid_body_mode, base.is_rigid_body_mode)
+
+
+# --- Version 12: modal_analysis_of_system (FEM, with direction) ---
+
+
+def test_modal_analysis_of_system_with_direction_populates_participation(
+    cantilever_dynamic_system,
+) -> None:
+    result = modal_analysis_of_system(cantilever_dynamic_system, num_modes=5, direction="x")
+
+    assert result.participation_factors is not None
+    assert result.participation_factors.shape == (5,)
+    assert result.effective_modal_mass.shape == (5,)
+    assert result.effective_modal_mass_ratio.shape == (5,)
+    assert result.cumulative_mass_ratio.shape == (5,)
+    assert np.all(np.diff(result.cumulative_mass_ratio) >= -1e-12)  # non-decreasing
+
+
+def test_modal_analysis_of_system_cumulative_mass_approaches_total_with_all_modes(
+    cantilever_dynamic_system,
+) -> None:
+    system = cantilever_dynamic_system
+    n_free = system.dof_map.total_dofs - len(system.boundary_conditions)
+
+    result = modal_analysis_of_system(system, num_modes=n_free, direction="x")
+
+    assert_allclose(result.cumulative_mass_ratio[-1], 1.0, rtol=1e-6)
+
+
+def test_modal_analysis_of_system_without_direction_leaves_participation_none(
+    cantilever_dynamic_system,
+) -> None:
+    result = modal_analysis_of_system(cantilever_dynamic_system, num_modes=3)
+    assert result.participation_factors is None
+    assert result.direction is None
+
+
+def test_modal_analysis_of_system_accepts_raw_direction_array(cantilever_dynamic_system) -> None:
+    system = cantilever_dynamic_system
+    r = influence_vector(system.dof_map, "y")
+    result = modal_analysis_of_system(system, num_modes=3, direction=r)
+    assert result.participation_factors is not None
+
+
+def test_modal_analysis_of_system_invalid_direction_string_raises(
+    cantilever_dynamic_system,
+) -> None:
+    with pytest.raises(ValidationError):
+        modal_analysis_of_system(cantilever_dynamic_system, num_modes=3, direction="z")
+
+
+def test_modal_analysis_of_system_periods_finite_for_physical_modes(
+    cantilever_dynamic_system,
+) -> None:
+    result = modal_analysis_of_system(cantilever_dynamic_system, num_modes=5)
+    # No rigid-body modes expected for a fixed cantilever.
+    assert np.all(np.isfinite(result.periods))

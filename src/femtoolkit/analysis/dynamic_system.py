@@ -203,3 +203,46 @@ def build_dynamic_system(
         stiffness=stiffness,
         boundary_conditions=boundary_conditions,
     )
+
+
+def free_and_constrained_indices(
+    system: DynamicSystem,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Partition a system's global DOFs into free and constrained sets.
+
+    The single shared implementation of the free/constrained DOF
+    partition every dynamic solve step needs (Newmark time integration,
+    modal reduction, harmonic response) -- mirroring the same strategy
+    :func:`~femtoolkit.analysis.system.solve` uses for the static case,
+    kept in one place so every dynamic analysis path partitions DOFs
+    identically.
+
+    Args:
+        system: The dynamic system to partition.
+
+    Returns:
+        ``(free, constrained, constrained_values)``: ``free`` and
+        ``constrained`` are integer arrays of global DOF indices (in
+        ascending order for ``free``, in
+        ``system.boundary_conditions`` order for ``constrained``);
+        ``constrained_values`` holds each constrained DOF's prescribed
+        displacement value, in the same order as ``constrained``.
+
+    Raises:
+        ValidationError: If every DOF is constrained (no free DOFs remain).
+    """
+    total_dofs = system.dof_map.total_dofs
+    constrained_indices: list[int] = []
+    constrained_values: list[float] = []
+    for bc in system.boundary_conditions:
+        constrained_indices.append(system.dof_map.global_index(bc.node_id, bc.dof))
+        constrained_values.append(bc.value)
+
+    constrained = np.array(constrained_indices, dtype=int)
+    constrained_set = set(constrained_indices)
+    free = np.array([i for i in range(total_dofs) if i not in constrained_set], dtype=int)
+
+    if free.size == 0:
+        raise ValidationError("Every DOF is constrained; there is nothing to analyze.")
+
+    return free, constrained, np.array(constrained_values, dtype=float)

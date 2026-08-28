@@ -2,7 +2,7 @@
 
 An open-source Python toolkit for developing finite element analysis (FEA) capabilities, built incrementally as a series of versioned milestones.
 
-**This is the Version 11 release.** Version 1 established the project's architecture and core domain model. Version 2 added the basic mathematical foundation for FEA. Version 3 turned that into a validated **1D structural analysis** capability (a bar element, `StaticLinearAnalysis`, and results). Version 4 extended the same analysis workflow to **2D truss structures**: two translational DOFs per node, a `TrussElement2D` transformed from local to global coordinates via its direction cosines, and X/Y loads, constraints, displacements, reactions, and member forces. Version 5 added **2D Euler-Bernoulli beam and frame analysis**: a rotational DOF per node, a `FrameElement2D` that resists axial force, shear force, and bending moment, and per-element shear/moment/bending-stress results. Version 6 introduced the toolkit's first true **2D continuum element**: a `CSTElement2D` (3-node constant strain triangle) representing a finite *area* of material rather than a line member, with plane stress/strain constitutive models, a strain-displacement (`B`) matrix, and von Mises/principal stress recovery. Version 7 added a second continuum element, `QuadElement2D` (4-node bilinear quadrilateral, "Q4"): natural coordinates, isoparametric mapping, the Jacobian, and 2x2 Gauss quadrature, needed because -- unlike the CST element -- a Q4 element's strain-displacement matrix has no closed form and varies within the element. Version 8 adds **automatic structured 2D mesh generation**: `create_quad_mesh`/`create_triangular_mesh` turn a rectangular domain and a subdivision count into a fully connected, correctly oriented mesh, plus whole-mesh validation, shape-quality metrics, and a JSON export/import foundation. Version 9 adds a **lightweight 2D geometry foundation and distributed loads**: `Rectangle` with named boundary regions (`"left"`/`"right"`/`"top"`/`"bottom"`), tolerance-based `mesh.nodes_on_boundary()` node selection, generic topological boundary-edge detection, distributed surface tractions converted to equivalent nodal forces by edge integration, boundary-region boundary conditions, and a `LoadCase` workflow abstraction. Version 10 adds a **professional loading system**: `LoadCase` no longer needs a mesh up front, `LoadCombination` combines multiple load cases with load factors (`1.2 * Dead + 1.6 * Live`), `LoadManager` registers and solves every load case/combination for one mesh into a named `ResultSet`, and two new load types -- `GravityLoad` (a body force) and `TemperatureLoad` (uniform thermal expansion) -- join a simple penalty-method `MultiPointConstraint` for tying two DOFs to equal displacement, all built on the unmodified Version 3 solver. Version 11 adds a **dynamic finite element analysis foundation**: consistent and lumped element mass matrices for CST and Q4, `RayleighDamping`, a `DynamicSystem` abstraction for `M u'' + C u' + K u = F(t)`, time-dependent loads (`ConstantLoad`/`StepLoad`/`SinusoidalLoad`), natural-frequency (modal) analysis via the generalized eigenvalue problem `K phi = lambda M phi` (SciPy-backed), and Newmark-beta time integration through `DynamicAnalysis`. It does **not** yet contain CAD/NURBS or curved/3D geometry, temperature gradients, rigid-body constraints, contact, unstructured or CAD-driven meshing, adaptive refinement, higher-order continuum elements, 3D beams, Timoshenko beams, plate, shell, or 3D solid elements, nonlinear dynamics, modal superposition or frequency-response analysis, or visualization.
+**This is the Version 12 release.** Version 1 established the project's architecture and core domain model. Version 2 added the basic mathematical foundation for FEA. Version 3 turned that into a validated **1D structural analysis** capability (a bar element, `StaticLinearAnalysis`, and results). Version 4 extended the same analysis workflow to **2D truss structures**: two translational DOFs per node, a `TrussElement2D` transformed from local to global coordinates via its direction cosines, and X/Y loads, constraints, displacements, reactions, and member forces. Version 5 added **2D Euler-Bernoulli beam and frame analysis**: a rotational DOF per node, a `FrameElement2D` that resists axial force, shear force, and bending moment, and per-element shear/moment/bending-stress results. Version 6 introduced the toolkit's first true **2D continuum element**: a `CSTElement2D` (3-node constant strain triangle) representing a finite *area* of material rather than a line member, with plane stress/strain constitutive models, a strain-displacement (`B`) matrix, and von Mises/principal stress recovery. Version 7 added a second continuum element, `QuadElement2D` (4-node bilinear quadrilateral, "Q4"): natural coordinates, isoparametric mapping, the Jacobian, and 2x2 Gauss quadrature, needed because -- unlike the CST element -- a Q4 element's strain-displacement matrix has no closed form and varies within the element. Version 8 adds **automatic structured 2D mesh generation**: `create_quad_mesh`/`create_triangular_mesh` turn a rectangular domain and a subdivision count into a fully connected, correctly oriented mesh, plus whole-mesh validation, shape-quality metrics, and a JSON export/import foundation. Version 9 adds a **lightweight 2D geometry foundation and distributed loads**: `Rectangle` with named boundary regions (`"left"`/`"right"`/`"top"`/`"bottom"`), tolerance-based `mesh.nodes_on_boundary()` node selection, generic topological boundary-edge detection, distributed surface tractions converted to equivalent nodal forces by edge integration, boundary-region boundary conditions, and a `LoadCase` workflow abstraction. Version 10 adds a **professional loading system**: `LoadCase` no longer needs a mesh up front, `LoadCombination` combines multiple load cases with load factors (`1.2 * Dead + 1.6 * Live`), `LoadManager` registers and solves every load case/combination for one mesh into a named `ResultSet`, and two new load types -- `GravityLoad` (a body force) and `TemperatureLoad` (uniform thermal expansion) -- join a simple penalty-method `MultiPointConstraint` for tying two DOFs to equal displacement, all built on the unmodified Version 3 solver. Version 11 adds a **dynamic finite element analysis foundation**: consistent and lumped element mass matrices for CST and Q4, `RayleighDamping`, a `DynamicSystem` abstraction for `M u'' + C u' + K u = F(t)`, time-dependent loads (`ConstantLoad`/`StepLoad`/`SinusoidalLoad`), natural-frequency (modal) analysis via the generalized eigenvalue problem `K phi = lambda M phi` (SciPy-backed), and Newmark-beta time integration through `DynamicAnalysis`. Version 12 adds **advanced dynamic analysis**: mass-normalized mode shapes, modal participation factors and effective modal mass, **modal superposition** (decoupling the dynamic equation into independent per-mode single-DOF equations, reusing the unmodified Version 11 Newmark machinery), modal damping ratios, **steady-state harmonic response and frequency-sweep analysis** (`[-omega^2*M + i*omega*C + K]U = F`), and a **response spectrum foundation** (interpolated spectral acceleration vs. period, plus per-mode spectral response). It does **not** yet contain CAD/NURBS or curved/3D geometry, temperature gradients, rigid-body constraints, contact, unstructured or CAD-driven meshing, adaptive refinement, higher-order continuum elements, 3D beams, Timoshenko beams, plate, shell, or 3D solid elements, nonlinear dynamics, explicit time integration, random vibration, or seismic-code-specific workflows/combination rules, or visualization.
 
 ## Current Features
 
@@ -124,6 +124,20 @@ An open-source Python toolkit for developing finite element analysis (FEA) capab
 - **`DynamicAnalysis`** — mirrors `StaticLinearAnalysis`'s shape (`add_boundary_condition`/`add_time_dependent_load`/`solve`) over a mesh of mass-capable elements; reuses the same free/constrained DOF reduction as the static solver, holding constrained DOFs at their prescribed value with zero velocity/acceleration throughout
 - **Dynamic results** — `DynamicResult` (a new, separate class from `AnalysisResult`) holds full time histories: `time`, `displacement_history`, `velocity_history`, `acceleration_history`, `reaction_history`, plus per-node/DOF query methods returning time series
 - **Engineering validation** — SDOF natural frequency and undamped/damped free-vibration checks against closed-form solutions, a 2-DOF spring-mass eigenproblem checked independently of any FEM model, a small cantilevered-plate FEM modal analysis (finite, positive, ascending frequencies; zero rigid-body modes; mode shapes zero at every constrained DOF), and a step-load dynamic-amplification check (peak response approaches 2x the static displacement) (see [Version 11](#version-11) below)
+
+**Version 12 — advanced dynamic analysis**
+
+- **Mass-normalized mode shapes** — `mass_normalize_mode_shapes(mode_shapes, mass)` rescales each mode so `phi^T*M*phi = 1`, a *different* convention from Version 11's default (max-abs-1) that leaves the default completely unchanged; scale-invariant regardless of the input mode shapes' own normalization
+- **Modal participation factors and effective modal mass** — `Gamma_i = (phi_i^T*M*r) / (phi_i^T*M*phi_i)` and `M_eff,i = Gamma_i^2 * (phi_i^T*M*phi_i)`, both reported against mass-normalized mode shapes (the standard convention); `M_eff,i` is provably invariant to mode-shape scale even though a bare `Gamma_i` is not (documented explicitly, since this is an easy mistake to make)
+- **`modal_analysis`/`modal_analysis_of_system`** — bundle Version 11's `natural_frequencies`/`natural_frequencies_of_system` (reused unchanged) with periods, mass-normalized mode shapes, and (given a `direction`, `"x"`/`"y"`/a raw influence vector) participation factors, effective modal mass, effective mass ratio, and cumulative mass ratio into one `ModalResult`
+- **Modal mass completeness** — the sum of effective modal mass over *every* free-DOF mode exactly equals the total participating mass in that direction (an exact eigenbasis-completeness identity, not an approximation), verified to `rtol=1e-8` on a FEM cantilever plate
+- **Modal superposition** — `modal_superposition(system, modes, loads, time_step, total_time, damping=None)` transforms `M*u'' + C*u' + K*u = F(t)` into `n` independent single-DOF modal equations (`q_i'' + 2*zeta_i*omega_i*q_i' + omega_i^2*q_i = phi_i^T*F(t)`) via mass-normalized mode shapes, integrates each with the *unmodified* Version 11 Newmark machinery, and reconstructs `u(t) = Phi @ q(t)` -- matches a direct `DynamicAnalysis` solve to machine precision when every mode is retained, and closely with a small truncated set (e.g. 6 of 80 modes giving <0.4% error in the example)
+- **Modal damping** — `ModalDamping(damping_ratios=0.02)` (constant) or `ModalDamping(damping_ratios=(0.02, 0.03, ...))` (per-mode) specifies `zeta_i` directly, the standard modal-analysis practice; `modal_damping_ratios_from_matrix` derives an equivalent ratio from an existing (e.g. Rayleigh) damping matrix instead
+- **Harmonic response** — `harmonic_response(system, angular_frequency, loads)` solves `[-omega^2*M + i*omega*C + K]U = F` directly (one complex linear solve, no time stepping), returning complex displacement, amplitude, and phase; matches the classical SDOF formula `|U/F0| = 1/sqrt((k-m*omega^2)^2 + (c*omega)^2)` to `rtol=1e-9`
+- **Frequency-response (sweep) analysis** — `frequency_response(system, frequencies, loads)` sweeps an array of ordinary frequencies (Hz), returning `FrequencyResponseResult` with per-node/DOF amplitude and phase (radians, with a degrees convenience method) across the sweep -- resonance is directly visible as an amplitude peak near each natural frequency, damping-dependent in height, with phase transitioning from near `0` (in phase, below resonance) through `-90` degrees (at resonance) toward `-180` degrees (out of phase, well above resonance)
+- **Response spectrum foundation** — `ResponseSpectrum(periods, accelerations)` (linearly interpolated via `evaluate(period)`, validated for sorted/non-negative/finite data) and `modal_spectral_response(modal_result, spectrum)` compute each mode's peak modal displacement (`q_i,max = Gamma_i*Sa(T_i)/omega_i^2`) and equivalent static force (`F_i,max = M_eff,i*Sa(T_i)`) -- deliberately stopping at these per-mode quantities, with no modal-combination rule (SRSS/CQC) or seismic-code workflow
+- **Zero duplicate solver code** — modal superposition reuses Version 11's Newmark step functions unchanged; harmonic/frequency response reuse the same free/constrained DOF partition helper now shared by `DynamicAnalysis` and `natural_frequencies_of_system` (extracted during this version, with zero behavior change verified against the full Version 1-11 regression suite)
+- **Engineering validation** — SDOF harmonic response and resonance behavior (peak location matches the analytical damped-resonance formula `omega_peak = sqrt(omega_n^2 - c^2/(2m^2))`) against closed-form solutions; a 2-DOF spring-mass system's participation factors, effective mass, and static-limit modal reconstruction checked by hand derivation; a FEM cantilever plate's modal mass completeness identity; and modal-superposition-vs-direct-solve agreement to machine precision with all modes, and <1% with a truncated set (see [Version 12](#version-12) below)
 
 ## Installation
 
@@ -480,6 +494,25 @@ load = SinusoidalLoad(amplitude=50.0, angular_frequency=500.0)
 analysis.add_time_dependent_load(TimeDependentNodalLoad(tip_node.id, TranslationDOF.Y, load))
 result = analysis.solve(time_step=2e-5, total_time=0.02)
 print(result.displacement(tip_node.id, TranslationDOF.Y).shape)  # (1001,) -- full time history
+```
+
+Version 12's modal participation/effective mass and harmonic response, on the same plate (see [Version 12](#version-12) below for the theory):
+
+```python
+from femtoolkit.analysis import NodalLoad
+from femtoolkit.analysis.harmonic import harmonic_response
+from femtoolkit.analysis.modal import modal_analysis_of_system
+
+# Modal mass summary in the Y direction -- no new element or solver code:
+modal = modal_analysis_of_system(system, num_modes=3, direction="y")
+print(modal.frequencies)              # [334.8..., 1838.8..., 2535.8...] Hz
+print(modal.participation_factors)    # [1.552, 0.887, ~0.0] -- mode 3 barely moves in Y
+print(modal.cumulative_mass_ratio)    # [0.657, 0.872, 0.872] -- 87% of Y mass in 2 modes
+
+# Steady-state harmonic response driven exactly at the first natural frequency:
+omega_1 = 2 * 3.14159265 * modal.frequencies[0]
+harmonic = harmonic_response(system, omega_1, [NodalLoad(tip_node.id, TranslationDOF.Y, 10.0)])
+print(harmonic.amplitude_at(tip_node.id, TranslationDOF.Y))  # 978.2... m -- large: near-resonance
 ```
 
 ## Version 2
@@ -1333,6 +1366,101 @@ Four validation areas in `tests/validation/`: (1) an SDOF oscillator's natural f
 
 Version 11 does not include nonlinear dynamics, contact dynamics, explicit (central-difference) time integration, modal superposition or harmonic/frequency-response analysis, random vibration, buckling, 3D elements or 3D dynamics, time-varying (support-motion) boundary conditions, or an advanced sparse-matrix solver (dense NumPy/SciPy throughout -- appropriate for this version's problem sizes; sparse infrastructure is future-version scope). See the [Roadmap](#roadmap).
 
+## Version 12
+
+Version 11 established the dynamic foundation -- mass, damping, natural frequencies, mode shapes, Newmark time integration -- but stopped at *directly* integrating the full coupled system and finding its natural frequencies. Version 12 builds the next layer real structural dynamics work needs on top of that foundation: how much of a structure's mass each mode actually carries (participation factors, effective modal mass), a cheaper way to compute a transient response by decoupling into independent modal equations (modal superposition), the *steady-state* response to a purely harmonic (not transient) load without any time stepping at all (harmonic/frequency response), and the mathematical foundation for evaluating a response spectrum. Every one of these builds on Version 11's `natural_frequencies`/`natural_frequencies_of_system` and `newmark`/`DynamicSystem` unchanged -- no new eigenvalue solver, no new time-integration scheme.
+
+```text
+FE Model -> K, M, C -> Modal Analysis -> Natural Frequencies + Mode Shapes
+    -> Dynamic Excitation -> Modal Superposition / Harmonic Response -> Dynamic Results
+```
+
+### Mass-normalized mode shapes
+
+`mass_normalize_mode_shapes(mode_shapes, mass)` rescales each mode shape column so `phi^T*M*phi = 1` -- a *different* convention from Version 11's default (largest component = `1.0`), used because it makes the modal mass matrix `Phi^T*M*Phi` exactly the identity, which is what participation factors, effective modal mass, and modal superposition are conventionally expressed against. This does not change Version 11's default normalization in any way; both are available side by side on `ModalResult` (`.mode_shapes` vs. `.mass_normalized_mode_shapes`). Mass normalization is scale-invariant: normalizing an already-max-abs-1-normalized mode shape gives the same mass-normalized result (up to the usual arbitrary sign) as normalizing the raw eigenvector directly.
+
+### Modal orthogonality
+
+For mass-normalized mode shapes, `Phi^T*M*Phi = I` and `Phi^T*K*Phi = diag(omega_1^2, omega_2^2, ...)` **exactly** -- the mathematical property (`phi_i^T*M*phi_j ~= 0` and `phi_i^T*K*phi_j ~= 0` for `i != j`) that makes modal superposition's decoupling possible at all. Verified directly (not just asserted) for both a hand-built 2-DOF system and a FEM cantilever plate's modes.
+
+### Modal participation factors and effective modal mass
+
+```text
+Gamma_i = (phi_i^T * M * r) / (phi_i^T * M * phi_i)      (participation factor)
+M_eff,i = Gamma_i^2 * (phi_i^T * M * phi_i)                (effective modal mass)
+```
+
+`r` is an **influence vector** -- a unit rigid-body displacement pattern in one global direction (`influence_vector(dof_map, "x"/"y")`, or a raw array for custom patterns). `Gamma_i` measures how strongly mode `i` couples to that direction; `M_eff,i` is the portion of the structure's total mass that mode effectively represents when shaken in that direction.
+
+**A subtlety worth stating explicitly, because it is easy to get backwards:** a bare `Gamma_i` is *not* invariant to the mode shape's own scale (`phi -> c*phi` gives `Gamma_i -> Gamma_i/c`) -- only the *product* `Gamma_i * phi_i` (the physical contribution to `r`) and, consequently, `M_eff,i` (where the two scalings exactly cancel) are scale-invariant. `modal_analysis`/`modal_analysis_of_system` report `Gamma_i` against the mass-normalized mode shapes specifically, matching the standard tabulated convention, so the reported numbers are directly comparable to hand calculations or other FEA tools.
+
+`effective_modal_mass_ratio` normalizes `M_eff,i` by the total participating mass, `r^T*M*r`; `cumulative_mass_ratio` is the running sum. Both are reported by `modal_analysis_of_system`, masking the direction vector to zero at every constrained DOF first -- required for the completeness identity below to hold exactly (a fixed support cannot itself move, so it contributes no dynamic mass; without masking, mass coupling between free and constrained DOFs in a consistent mass matrix would leak a spurious contribution through).
+
+### Modal mass completeness
+
+Summing effective modal mass over **every** mode of a system's free DOFs exactly recovers the total participating mass -- an exact consequence of eigenbasis completeness (`sum_i(phi_i @ phi_i^T) = M_free^-1` for mass-normalized modes), not an approximation or a rule of thumb. Verified to `rtol=1e-8` on a FEM cantilever plate in `tests/validation/test_effective_modal_mass.py`: with all free-DOF modes included, `cumulative_mass_ratio[-1]` is exactly `1.0`; with a truncated set, it approaches `1.0` monotonically as more modes are added -- the standard justification for how many modes are "enough" in a real modal analysis.
+
+### Modal superposition
+
+```text
+u = Phi * q                                       (physical <-> modal coordinates)
+
+q_i'' + 2*zeta_i*omega_i*q_i' + omega_i^2*q_i = phi_i^T * F(t)     (per mode, decoupled)
+```
+
+For mass-normalized mode shapes, `Phi^T*M*Phi = I` and `Phi^T*K*Phi = diag(omega_i^2)` exactly (modal orthogonality, above); modal damping ratios `zeta_i` are specified directly (see below) rather than requiring a damping matrix that happens to be proportional, so the `n` modal equations decouple into `n` **independent single-DOF oscillators** -- each integrated with the exact same Newmark-beta step functions Version 11 already implements (`effective_stiffness`/`effective_force`/`update_velocity_acceleration`), not a new integration scheme. `modal_superposition(system, modes, loads, time_step, total_time, damping=None)` runs this and reconstructs `u(t) = Phi @ q(t)` (plus velocity/acceleration and reactions), returning an ordinary `DynamicResult` -- directly comparable to a `DynamicAnalysis.solve()` result.
+
+**Retaining every free-DOF mode reproduces the direct Newmark solution to machine precision** (verified in `tests/validation/test_modal_superposition_reconstruction.py`, `atol=1e-11`) -- both approaches solve the same underlying linear system, merely in different coordinates. Retaining only the lowest few modes (the practical use case) gives a close approximation at a fraction of the equations integrated per step: the bundled example retains 6 of 80 free DOFs and stays within 0.4% of the direct solution.
+
+Rigid-body modes are excluded from modal superposition automatically (an undefined period and no meaningful damping ratio); every boundary condition must prescribe exactly zero displacement, since mode shapes -- and therefore the reconstructed `u(t)` -- are zero at every constrained DOF by construction, unable to represent nonzero prescribed support motion.
+
+### Modal damping
+
+```text
+zeta_i = c_i / (2 * sqrt(k_i * m_i))
+```
+
+`ModalDamping(damping_ratios=0.02)` applies a constant ratio to every mode; `ModalDamping(damping_ratios=(0.02, 0.03, ...))` specifies one ratio per mode -- the standard, direct way modal damping is specified in practice (a few percent of critical damping is typical), rather than requiring a full, plausibly-proportional damping matrix. `modal_damping_ratios_from_matrix` goes the other way: given an existing damping matrix (e.g. `RayleighDamping`, which is *exactly* proportional and therefore gives an exact ratio) and mass-normalized mode shapes, it derives each mode's equivalent `zeta_i = (phi_i^T*C*phi_i) / (2*omega_i)`. If `modal_superposition` isn't given an explicit `ModalDamping`, it derives one this way from `system.damping` automatically (zero for an undamped system).
+
+### Harmonic response and the frequency domain
+
+For `F(t) = F0*sin(omega*t)`, the long-term steady-state response is itself harmonic, `u(t) = Re(U * exp(i*omega*t))`, where the complex amplitude `U` satisfies:
+
+```text
+[ -omega^2*M + i*omega*C + K ] U = F
+```
+
+-- a single complex linear solve per frequency, no time stepping at all. `harmonic_response(system, angular_frequency, loads)` solves this on the free DOFs (reusing the same free/constrained partition as every other dynamic solve path) and returns complex displacement, **amplitude** (`abs(U)`) and **phase** (`angle(U)`, in radians, with a `.phase_degrees()` convenience method -- radians remain the primary representation). Matches the classical SDOF formula `|U/F0| = 1/sqrt((k-m*omega^2)^2 + (c*omega)^2)` to `rtol=1e-9`.
+
+### Frequency-response (sweep) analysis and resonance
+
+`frequency_response(system, frequencies, loads)` sweeps an array of *ordinary* frequencies (Hz, converted to angular frequencies internally) through `harmonic_response`, returning amplitude and phase at every DOF and every swept frequency. This is where **resonance** becomes visible: amplitude grows sharply as the excitation frequency approaches a natural frequency, with the peak height set entirely by damping (lighter damping -> taller, narrower peak) -- verified against the exact damped-resonance-peak-location formula, `omega_peak = sqrt(omega_n^2 - c^2/(2*m^2))`, and the exact amplitude at true resonance, `|U/F0| = 1/(c*omega_n)`. Phase transitions smoothly from near `0` (in phase, well below resonance) through `-90` degrees (exactly at resonance) toward `-180` degrees (out of phase, well above resonance) -- the same qualitative behavior in every validated case, FEM or SDOF.
+
+### Response spectrum foundation
+
+A **response spectrum** tabulates the peak response of a single-DOF oscillator (spectral acceleration `Sa`) as a function of its own natural period `T`. `ResponseSpectrum(periods=..., accelerations=...)` is a lightweight, linearly interpolated representation (`evaluate(period)`), validated for sorted/non-negative/finite data, that performs no unit conversion and carries no assumption about where the data came from (an earthquake record, a code spectrum, a synthetic curve) -- no seismic-code-specific logic is implemented.
+
+`modal_spectral_response(modal_result, spectrum)` computes each mode's peak modal response:
+
+```text
+q_i,max = Gamma_i * Sa(T_i) / omega_i^2       (peak modal coordinate)
+F_i,max = M_eff,i * Sa(T_i)                    (peak equivalent static force)
+```
+
+Rigid-body modes are skipped automatically. This module deliberately stops at these per-mode quantities -- combining them into one estimated total physical response (SRSS, CQC, or any other modal-combination rule) is an *additional* modeling choice with its own assumptions about modal correlation, explicitly out of scope for this version.
+
+### Units
+
+Same SI convention maintained since Version 1: mass in kg, angular frequency in rad/s, frequency in Hz, period in seconds, phase in radians (with an explicit degrees convenience method). `ResponseSpectrum` performs no unit conversion -- period and acceleration units must be chosen consistently by the caller (see `examples/response_spectrum.py` for why mixing e.g. `g` and SI directly would silently corrupt `q_i,max`'s units).
+
+### Engineering validation
+
+Four validation areas in `tests/validation/`: (1) SDOF harmonic response matching the analytical amplitude/phase formulas across below/at/above-resonance frequencies, plus resonance-specific checks (exact resonance amplitude, damped-peak-location formula, lighter damping giving a taller peak); (2) a 2-DOF spring-mass system's participation factors and effective mass checked by hand derivation (a closed-form eigenvector-ratio formula), plus a static-limit modal-reconstruction identity (`K^-1 = sum_i(phi_i @ phi_i^T / omega_i^2)` for mass-normalized modes); (3) a FEM cantilever plate's modal mass completeness (cumulative effective mass ratio reaches exactly `1.0` with all modes); (4) modal superposition matching a direct Newmark solve to machine precision with all modes, and closely (<1%) with a small truncated set (see [Version 12](#version-12) above).
+
+### Limitations
+
+Version 12 does not include nonlinear dynamics, contact, explicit time integration, random vibration, seismic-code-specific workflows, or response-spectrum modal-combination rules (SRSS, CQC, or otherwise) -- the response-spectrum and modal-participation *foundation* is provided, but combining per-mode results into a single estimated peak physical response is left to a future version or the caller's own judgment. See the [Roadmap](#roadmap).
+
 ## Project Structure
 
 ```text
@@ -1380,12 +1508,19 @@ finite-element-toolkit/
 │   │                       # TimeDependentNodalLoad), dynamic_system.py
 │   │                       # (DynamicSystem, build_dynamic_system),
 │   │                       # modal.py (natural_frequencies,
-│   │                       # natural_frequencies_of_system), newmark.py
-│   │                       # (Newmark-beta step math), dynamic_analysis.py
-│   │                       # (DynamicAnalysis)
+│   │                       # natural_frequencies_of_system, mass
+│   │                       # normalization, participation factors,
+│   │                       # effective modal mass, modal_analysis(_of_system)),
+│   │                       # newmark.py (Newmark-beta step math),
+│   │                       # dynamic_analysis.py (DynamicAnalysis),
+│   │                       # modal_superposition.py (modal_superposition),
+│   │                       # harmonic.py (harmonic_response,
+│   │                       # frequency_response), spectrum.py
+│   │                       # (ResponseSpectrum, modal_spectral_response)
 │   ├── results/            # AnalysisResult, FrameEndForces, FrameElementForces,
 │   │                       # ResultSet (named load case/combination results),
-│   │                       # DynamicResult (time-history results)
+│   │                       # DynamicResult (time-history results, reused by
+│   │                       # modal superposition unchanged)
 │   ├── units/               # SI unit constants
 │   ├── exceptions/          # Custom exception types (incl. DegenerateElementError,
 │   │                       # DuplicateNodeCoordinatesError)
@@ -1449,14 +1584,18 @@ python examples/single_dof_vibration.py       # Version 11: SDOF natural frequen
 python examples/natural_frequency_analysis.py # Version 11: FEM modal analysis, mass/stiffness/mode shapes
 python examples/newmark_dynamic_analysis.py   # Version 11: Newmark-beta time history under a sinusoidal load
 python examples/damped_vibration.py           # Version 11: Rayleigh damping and decaying vibration
+python examples/modal_analysis.py             # Version 12: participation factors + effective modal mass
+python examples/modal_superposition.py        # Version 12: modal superposition vs. direct time history
+python examples/harmonic_response.py          # Version 12: harmonic loading + frequency sweep + resonance
+python examples/response_spectrum.py          # Version 12: response spectrum + modal spectral response
 ```
 
 ## Roadmap
 
 Future versions will build a more complete FEA solver on top of this foundation. None of the following is implemented yet:
 
-- **Version 12** — Advanced dynamic analysis: modal superposition, harmonic/frequency-response analysis, frequency-domain loading, response spectra, more advanced damping models, dynamic post-processing
-- **Later** — Unstructured/CAD-driven meshing, 3D elements, higher-order continuum elements, nonlinear analysis, GUI, visualization, reporting, and more
+- **Version 13** — Nonlinear finite element analysis foundation: material nonlinearity, plasticity, Newton-Raphson iteration, tangent stiffness, incremental loading, convergence criteria, nonlinear solution controls
+- **Later** — Unstructured/CAD-driven meshing, 3D elements, higher-order continuum elements, seismic-code response-spectrum combination rules, GUI, visualization, reporting, and more
 
 ## License
 

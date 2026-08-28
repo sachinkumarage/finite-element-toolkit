@@ -1,5 +1,5 @@
 """Basic FEA mathematical foundation: DOFs, loads, boundary conditions,
-stiffness/mass matrices, assembly, static and dynamic solving.
+stiffness/mass matrices, assembly, static, dynamic, and frequency-domain solving.
 """
 
 from femtoolkit.analysis.assembly import (
@@ -13,7 +13,11 @@ from femtoolkit.analysis.boundary_conditions import (
     BoundaryCondition,
     boundary_conditions_for_region,
 )
-from femtoolkit.analysis.damping import RayleighDamping
+from femtoolkit.analysis.damping import (
+    ModalDamping,
+    RayleighDamping,
+    modal_damping_ratios_from_matrix,
+)
 from femtoolkit.analysis.distributed_load import DistributedLoad, distributed_load_to_nodal_loads
 from femtoolkit.analysis.dof import DOFMap, RotationDOF, TranslationDOF
 from femtoolkit.analysis.dynamic_analysis import DynamicAnalysis
@@ -24,7 +28,17 @@ from femtoolkit.analysis.dynamic_loads import (
     TimeDependentLoad,
     TimeDependentNodalLoad,
 )
-from femtoolkit.analysis.dynamic_system import DynamicSystem, build_dynamic_system
+from femtoolkit.analysis.dynamic_system import (
+    DynamicSystem,
+    build_dynamic_system,
+    free_and_constrained_indices,
+)
+from femtoolkit.analysis.harmonic import (
+    FrequencyResponseResult,
+    HarmonicResult,
+    frequency_response,
+    harmonic_response,
+)
 from femtoolkit.analysis.load_case import LoadCase
 from femtoolkit.analysis.load_combination import LoadCombination
 from femtoolkit.analysis.load_manager import LoadManager
@@ -33,9 +47,19 @@ from femtoolkit.analysis.mass import MassMatrixType, element_mass_matrix, elemen
 from femtoolkit.analysis.modal import (
     DEFAULT_RIGID_BODY_TOLERANCE,
     ModalAnalysisResult,
+    ModalResult,
+    compute_periods,
+    effective_modal_mass,
+    effective_modal_mass_ratio,
+    influence_vector,
+    mass_normalize_mode_shapes,
+    modal_analysis,
+    modal_analysis_of_system,
+    modal_participation_factors,
     natural_frequencies,
     natural_frequencies_of_system,
 )
+from femtoolkit.analysis.modal_superposition import modal_superposition
 from femtoolkit.analysis.multi_point_constraint import (
     MultiPointConstraint,
     apply_multi_point_constraints,
@@ -47,6 +71,11 @@ from femtoolkit.analysis.newmark import (
     effective_stiffness,
     newmark_step,
     update_velocity_acceleration,
+)
+from femtoolkit.analysis.spectrum import (
+    ModalSpectralResponseResult,
+    ResponseSpectrum,
+    modal_spectral_response,
 )
 from femtoolkit.analysis.static_linear import StaticLinearAnalysis
 from femtoolkit.analysis.stiffness import (
@@ -78,16 +107,22 @@ __all__ = [
     "DynamicSystem",
     "ElementMassContribution",
     "ElementStiffnessContribution",
+    "FrequencyResponseResult",
     "GravityLoad",
+    "HarmonicResult",
     "LinearSystem",
     "LoadCase",
     "LoadCombination",
     "LoadManager",
     "MassMatrixType",
     "ModalAnalysisResult",
+    "ModalDamping",
+    "ModalResult",
+    "ModalSpectralResponseResult",
     "MultiPointConstraint",
     "NodalLoad",
     "RayleighDamping",
+    "ResponseSpectrum",
     "RotationDOF",
     "SinusoidalLoad",
     "StaticLinearAnalysis",
@@ -103,16 +138,30 @@ __all__ = [
     "boundary_conditions_for_region",
     "build_dynamic_system",
     "build_force_vector",
+    "compute_periods",
     "cst_element_stiffness",
     "distributed_load_to_nodal_loads",
     "effective_force",
+    "effective_modal_mass",
+    "effective_modal_mass_ratio",
     "effective_stiffness",
     "element_mass_matrix",
     "element_total_mass",
     "frame_element_stiffness_2d",
     "frame_element_stiffness_local",
     "frame_transformation_matrix_2d",
+    "free_and_constrained_indices",
+    "frequency_response",
     "gravity_load_to_nodal_loads",
+    "harmonic_response",
+    "influence_vector",
+    "mass_normalize_mode_shapes",
+    "modal_analysis",
+    "modal_analysis_of_system",
+    "modal_damping_ratios_from_matrix",
+    "modal_participation_factors",
+    "modal_spectral_response",
+    "modal_superposition",
     "natural_frequencies",
     "natural_frequencies_of_system",
     "newmark_step",

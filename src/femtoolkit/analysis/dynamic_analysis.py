@@ -30,7 +30,11 @@ import numpy as np
 from femtoolkit.analysis.boundary_conditions import BoundaryCondition
 from femtoolkit.analysis.damping import RayleighDamping
 from femtoolkit.analysis.dynamic_loads import TimeDependentNodalLoad
-from femtoolkit.analysis.dynamic_system import DynamicSystem, build_dynamic_system
+from femtoolkit.analysis.dynamic_system import (
+    DynamicSystem,
+    build_dynamic_system,
+    free_and_constrained_indices,
+)
 from femtoolkit.analysis.mass import MassMatrixType
 from femtoolkit.analysis.newmark import (
     DEFAULT_BETA,
@@ -174,19 +178,8 @@ class DynamicAnalysis:
         dof_map = system.dof_map
         total_dofs = dof_map.total_dofs
 
-        constrained_indices: list[int] = []
-        constrained_values: list[float] = []
-        for bc in system.boundary_conditions:
-            constrained_indices.append(dof_map.global_index(bc.node_id, bc.dof))
-            constrained_values.append(bc.value)
-        constrained = np.array(constrained_indices, dtype=int)
-        constrained_set = set(constrained_indices)
-        free = np.array([i for i in range(total_dofs) if i not in constrained_set], dtype=int)
+        free, constrained, u_c = free_and_constrained_indices(system)
 
-        if free.size == 0:
-            raise ValidationError("DynamicAnalysis requires at least one free (unconstrained) DOF.")
-
-        u_c = np.array(constrained_values, dtype=float)
         mass_ff = system.mass[np.ix_(free, free)]
         damping_ff = system.damping[np.ix_(free, free)]
         stiffness_ff = system.stiffness[np.ix_(free, free)]

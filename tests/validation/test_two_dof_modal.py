@@ -26,7 +26,7 @@ import math
 import numpy as np
 from numpy.testing import assert_allclose
 
-from femtoolkit.analysis.modal import natural_frequencies
+from femtoolkit.analysis.modal import modal_analysis, natural_frequencies
 
 MASS_1 = 1.0
 MASS_2 = 1.0
@@ -102,3 +102,68 @@ def test_first_mode_is_in_phase_second_is_out_of_phase() -> None:
     mode_2 = result.mode_shapes[:, 1]
     assert mode_1[0] * mode_1[1] > 0  # same sign
     assert mode_2[0] * mode_2[1] < 0  # opposite sign
+
+
+# --- Modal response: participation factors and effective modal mass ---
+
+
+def test_participation_factors_match_hand_derived_mass_normalized_ratio() -> None:
+    """For M = I, the mass-normalized mode shape is just the
+    unit-norm eigenvector, ``phi_mn = phi / sqrt(phi[0]^2 + phi[1]^2)``,
+    and (since M = I, r = [1, 0]) the participation factor is exactly
+    its first component, ``Gamma_i = phi_mn[0]``. Using the closed-form
+    eigenvector ratio ``phi2/phi1 = (k1+k2-lambda_i*m1)/k2`` already
+    validated in :func:`test_mode_shape_ratios_match_hand_derivation`,
+    this gives a fully independent, hand-derivable expected value.
+    """
+    mass, stiffness = _system()
+    r = np.array([1.0, 0.0])
+    result = modal_analysis(stiffness, mass, direction=r)
+
+    for mode_index in range(2):
+        lam = result.eigenvalues[mode_index]
+        ratio = (STIFFNESS_1 + STIFFNESS_2 - lam * MASS_1) / STIFFNESS_2
+        expected_magnitude = 1.0 / math.sqrt(1.0 + ratio**2)
+        assert_allclose(
+            abs(result.participation_factors[mode_index]), expected_magnitude, rtol=1e-9
+        )
+
+
+def test_effective_modal_mass_sums_to_total_participating_mass() -> None:
+    """Sum of effective modal mass over ALL modes must exactly equal
+    the total mass participating in the requested direction,
+    ``r^T * M * r`` -- an exact consequence of eigenbasis completeness,
+    independent of this 2-DOF system's specific numbers.
+    """
+    mass, stiffness = _system()
+    r = np.array([1.0, 0.0])
+    result = modal_analysis(stiffness, mass, direction=r)
+
+    total_participating_mass = r @ mass @ r
+    assert_allclose(result.effective_modal_mass.sum(), total_participating_mass, rtol=1e-9)
+    assert_allclose(result.cumulative_mass_ratio[-1], 1.0, rtol=1e-9)
+
+
+def test_modal_response_reconstructs_static_displacement() -> None:
+    """Static-limit validation via modal superposition: for a constant
+    force pattern F = r * F0, the exact static displacement
+    ``u = K^-1 @ F`` must equal the modal reconstruction
+    ``u = sum_i(phi_i * Gamma_i * F0 / omega_i^2)`` using mass-normalized
+    mode shapes -- the static limit of the general modal-superposition
+    equation ``q_i = Gamma_i * F0 / omega_i^2`` for a constant load.
+    """
+    mass, stiffness = _system()
+    force_magnitude = 5.0
+    r = np.array([1.0, 0.0])
+    result = modal_analysis(stiffness, mass, direction=r)
+
+    static_displacement = np.linalg.solve(stiffness, r * force_magnitude)
+
+    modal_displacement = np.zeros(2)
+    for mode_index in range(2):
+        phi = result.mass_normalized_mode_shapes[:, mode_index]
+        gamma = result.participation_factors[mode_index]
+        omega = result.angular_frequencies[mode_index]
+        modal_displacement += phi * gamma * force_magnitude / omega**2
+
+    assert_allclose(modal_displacement, static_displacement, rtol=1e-9)

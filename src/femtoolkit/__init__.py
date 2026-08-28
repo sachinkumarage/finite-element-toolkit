@@ -90,13 +90,33 @@ integration (:mod:`femtoolkit.analysis.newmark`,
 it is built on the unmodified Version 2 DOF mapping and assembly
 machinery and the unmodified Version 3-10 mesh, material, geometry, and
 loading abstractions -- static analysis is completely unaffected.
+Version 12 extends the modal foundation into **advanced dynamic
+analysis**: mass-normalized mode shapes, modal participation factors
+and effective modal mass (:mod:`femtoolkit.analysis.modal`'s
+:func:`~femtoolkit.analysis.modal.modal_analysis`/
+:func:`~femtoolkit.analysis.modal.modal_analysis_of_system`), **modal
+superposition** (:mod:`femtoolkit.analysis.modal_superposition`,
+decoupling ``M u'' + C u' + K u = F(t)`` into independent per-mode
+single-DOF equations reusing the unmodified Version 11 Newmark
+machinery), **modal damping ratios**
+(:class:`~femtoolkit.analysis.damping.ModalDamping`), **steady-state
+harmonic response and frequency-sweep analysis**
+(:mod:`femtoolkit.analysis.harmonic`, solving
+``[-omega^2*M + i*omega*C + K]U = F`` directly in the frequency domain),
+and a **response spectrum foundation**
+(:mod:`femtoolkit.analysis.spectrum`, interpolated spectral
+acceleration vs. period, plus per-mode peak spectral response -- no
+seismic-code-specific combination rules). All of it builds on Versions
+1-11 unchanged: mass/stiffness assembly, boundary-condition reduction,
+and Newmark time integration are reused directly, not reimplemented.
 
 The toolkit does not yet implement CAD or NURBS geometry, curved or 3D
 geometry, unstructured or CAD-driven meshing, adaptive mesh refinement,
 higher-order continuum elements, 3D beams, Timoshenko beams, plate,
 shell, or 3D solid elements, temperature gradients, rigid-body
-constraints, contact, nonlinear dynamics, modal superposition or
-frequency-response analysis, or visualization.
+constraints, contact, nonlinear dynamics, explicit time integration,
+random vibration, seismic-code-specific workflows or response-spectrum
+combination rules, or visualization.
 """
 
 from femtoolkit import logging_config  # noqa: F401  (attaches NullHandler on import)
