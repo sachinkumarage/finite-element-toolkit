@@ -13,6 +13,7 @@ from femtoolkit.analysis import (
     assemble_global_stiffness,
     bar_element_stiffness,
 )
+from femtoolkit.analysis.assembly import ElementForceContribution, assemble_global_internal_force
 from femtoolkit.exceptions import EntityNotFoundError, ValidationError
 
 X = TranslationDOF.X
@@ -205,3 +206,55 @@ def test_assemble_global_mass_rejects_unknown_node() -> None:
 
     with pytest.raises(EntityNotFoundError):
         assemble_global_mass(dof_map, [ElementMassContribution(((1, X), (99, X)), local_mass)])
+
+
+# --- Version 13: assemble_global_internal_force ---
+
+
+def test_assemble_global_internal_force_single_element() -> None:
+    dof_map = DOFMap(node_ids=[1, 2], dofs_per_node=1)
+    local_force = np.array([-1.0, 1.0])
+
+    global_force = assemble_global_internal_force(
+        dof_map, [ElementForceContribution(((1, X), (2, X)), local_force)]
+    )
+
+    assert global_force.shape == (2,)
+    assert_allclose(global_force, local_force)
+
+
+def test_assemble_global_internal_force_sums_shared_node() -> None:
+    """Node 2 is shared by both elements: their force contributions there must sum."""
+    dof_map = DOFMap(node_ids=[1, 2, 3], dofs_per_node=1)
+    f1 = np.array([1.0, -1.0])
+    f2 = np.array([2.0, -2.0])
+
+    global_force = assemble_global_internal_force(
+        dof_map,
+        [
+            ElementForceContribution(((1, X), (2, X)), f1),
+            ElementForceContribution(((2, X), (3, X)), f2),
+        ],
+    )
+
+    assert_allclose(global_force, [1.0, 1.0, -2.0])
+
+
+def test_assemble_global_internal_force_rejects_wrong_shaped_vector() -> None:
+    dof_map = DOFMap(node_ids=[1, 2], dofs_per_node=1)
+    bad_vector = np.zeros(3)
+
+    with pytest.raises(ValidationError):
+        assemble_global_internal_force(
+            dof_map, [ElementForceContribution(((1, X), (2, X)), bad_vector)]
+        )
+
+
+def test_assemble_global_internal_force_rejects_unknown_node() -> None:
+    dof_map = DOFMap(node_ids=[1, 2], dofs_per_node=1)
+    local_force = np.array([1.0, -1.0])
+
+    with pytest.raises(EntityNotFoundError):
+        assemble_global_internal_force(
+            dof_map, [ElementForceContribution(((1, X), (99, X)), local_force)]
+        )

@@ -10,6 +10,7 @@ from femtoolkit.exceptions.exceptions import (
     InsufficientConstraintsError,
     InvalidAnalysisError,
     InvalidElementError,
+    NonlinearConvergenceError,
     SingularSystemError,
     ValidationError,
 )
@@ -24,6 +25,7 @@ __all__ = [
     "InsufficientConstraintsError",
     "InvalidAnalysisError",
     "InvalidElementError",
+    "NonlinearConvergenceError",
     "SingularSystemError",
     "ValidationError",
 ]

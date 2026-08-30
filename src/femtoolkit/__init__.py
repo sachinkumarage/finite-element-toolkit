@@ -109,6 +109,30 @@ acceleration vs. period, plus per-mode peak spectral response -- no
 seismic-code-specific combination rules). All of it builds on Versions
 1-11 unchanged: mass/stiffness assembly, boundary-condition reduction,
 and Newmark time integration are reused directly, not reimplemented.
+Version 13 introduces the toolkit's first **nonlinear** finite element
+analysis: :class:`~femtoolkit.analysis.nonlinear_analysis.NonlinearAnalysis`
+solves the nonlinear equilibrium equation
+``R(u) = F_ext - F_int(u) = 0`` with incremental load stepping and
+Newton-Raphson iteration (``K_t @ du = R``, ``K_t = dF_int/du``, the
+**tangent stiffness**), using a new
+:class:`~femtoolkit.materials.nonlinear.NonlinearMaterial` interface
+built on an explicit **trial vs. committed state** pattern
+(:class:`~femtoolkit.materials.nonlinear.MaterialState` is immutable, so
+a non-converged Newton iteration can never corrupt a material's
+last-known-good state). Two concrete materials are provided: an
+:class:`~femtoolkit.materials.nonlinear.ElasticMaterialAdapter` that
+wraps the existing linear materials (used to validate the nonlinear
+solver against the unmodified Version 3
+:class:`~femtoolkit.analysis.static_linear.StaticLinearAnalysis`), and a
+genuine uniaxial :class:`~femtoolkit.materials.nonlinear.ElasticPerfectlyPlasticMaterial1D`
+model (no hardening). CST and Q4 elements gain nonlinear internal-force
+and tangent-stiffness support
+(:mod:`femtoolkit.analysis.nonlinear_elements`) without any change to
+their existing linear ``stiffness_matrix``; Q4 maintains four
+independent material states, one per Gauss point. Boundary conditions,
+DOF mapping, and matrix/vector assembly
+(:func:`~femtoolkit.analysis.assembly.assemble_global_internal_force`)
+are all reused from Versions 2-10, not reimplemented.
 
 The toolkit does not yet implement CAD or NURBS geometry, curved or 3D
 geometry, unstructured or CAD-driven meshing, adaptive mesh refinement,
@@ -116,7 +140,10 @@ higher-order continuum elements, 3D beams, Timoshenko beams, plate,
 shell, or 3D solid elements, temperature gradients, rigid-body
 constraints, contact, nonlinear dynamics, explicit time integration,
 random vibration, seismic-code-specific workflows or response-spectrum
-combination rules, or visualization.
+combination rules, material hardening (isotropic or kinematic),
+multiaxial plasticity or yield-surface theory, large-deformation
+(geometric) nonlinearity, fracture or damage mechanics, the arc-length
+method, automatic adaptive load stepping, or visualization.
 """
 
 from femtoolkit import logging_config  # noqa: F401  (attaches NullHandler on import)

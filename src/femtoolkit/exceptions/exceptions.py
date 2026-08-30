@@ -112,3 +112,38 @@ class EigenvalueComputationError(FiniteElementToolkitError):
     pair, and a strong signal that the stiffness or mass matrix supplied
     was not built correctly (e.g. mismatched DOF ordering).
     """
+
+
+class NonlinearConvergenceError(FiniteElementToolkitError):
+    """Raised when a Newton-Raphson load increment fails to converge.
+
+    Raised by :class:`~femtoolkit.analysis.nonlinear_analysis.NonlinearAnalysis.solve`
+    once a load step exhausts its iteration budget
+    (``NonlinearSolverSettings.max_iterations``) without satisfying the
+    configured convergence criterion. The load steps that *did* converge
+    before the failure -- and the failed step's own final (uncommitted)
+    residual/iteration information -- remain available via
+    :attr:`step_results` on the exception itself, so a caller can inspect
+    how far the analysis got without needing to catch a bare partial
+    result from a non-raising API.
+
+    Per Version 13's scope, no automatic step-size reduction is attempted
+    on failure (see the module docstring for
+    :mod:`femtoolkit.analysis.nonlinear_analysis`) -- this is the single,
+    simple failure signal for this version, with automatic cutback left
+    as a documented future extension point.
+    """
+
+    def __init__(self, message: str, step_results: object = ()) -> None:
+        """Create the error, optionally attaching the partial step-result history.
+
+        Args:
+            message: Human-readable description of the failure.
+            step_results: The sequence of
+                :class:`~femtoolkit.results.nonlinear_result.LoadStepResult`
+                objects completed (or attempted) before raising, exposed
+                as :attr:`step_results` for callers that catch this
+                exception.
+        """
+        super().__init__(message)
+        self.step_results = step_results
