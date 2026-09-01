@@ -133,6 +133,34 @@ independent material states, one per Gauss point. Boundary conditions,
 DOF mapping, and matrix/vector assembly
 (:func:`~femtoolkit.analysis.assembly.assemble_global_internal_force`)
 are all reused from Versions 2-10, not reimplemented.
+Version 14 upgrades material plasticity from Version 13's fixed-yield
+model to genuine **hardening**, all still built on the unmodified
+Version 13 :class:`~femtoolkit.materials.nonlinear.NonlinearMaterial`
+interface and trial/committed :class:`~femtoolkit.materials.nonlinear.MaterialState`
+pattern -- no new material protocol was needed
+(:mod:`femtoolkit.materials.hardening`):
+:class:`~femtoolkit.materials.hardening.BilinearIsotropicHardeningMaterial1D`
+grows its yield surface symmetrically with accumulated plastic strain
+(``sigma_y = sigma_y0 + H*alpha``);
+:class:`~femtoolkit.materials.hardening.BilinearKinematicHardeningMaterial1D`
+instead translates a fixed-size yield surface via a back stress ``X``,
+reproducing the experimentally observed **Bauschinger effect** (earlier
+reverse yielding after forward plastic flow); and
+:class:`~femtoolkit.materials.hardening.MultilinearIsotropicHardeningMaterial1D`
+represents a full piecewise-linear stress-strain curve directly, for
+monotonic loading. Both bilinear models use an exact, non-iterative 1D
+return-mapping algorithm and an algorithmically **consistent tangent**
+(``D_t = E*H/(E+H)`` once yielded), and setting ``H = 0`` exactly
+reproduces Version 13's :class:`~femtoolkit.materials.nonlinear.ElasticPerfectlyPlasticMaterial1D`.
+CST and Q4 gain genuine (not just linear-adapter-validated) plastic
+behavior through a decoupled per-component adapter
+(:class:`~femtoolkit.materials.hardening.DecoupledIsotropicHardeningAdapter2D`,
+explicitly documented as an architecture-validation simplification, not
+real multiaxial plasticity -- see the Version 15 preview), with zero
+changes needed to :mod:`femtoolkit.analysis.nonlinear_elements` or
+:class:`~femtoolkit.analysis.nonlinear_analysis.NonlinearAnalysis`,
+since both were already fully generic over any conforming
+``NonlinearMaterial``.
 
 The toolkit does not yet implement CAD or NURBS geometry, curved or 3D
 geometry, unstructured or CAD-driven meshing, adaptive mesh refinement,
@@ -140,10 +168,12 @@ higher-order continuum elements, 3D beams, Timoshenko beams, plate,
 shell, or 3D solid elements, temperature gradients, rigid-body
 constraints, contact, nonlinear dynamics, explicit time integration,
 random vibration, seismic-code-specific workflows or response-spectrum
-combination rules, material hardening (isotropic or kinematic),
-multiaxial plasticity or yield-surface theory, large-deformation
-(geometric) nonlinearity, fracture or damage mechanics, the arc-length
-method, automatic adaptive load stepping, or visualization.
+combination rules, multiaxial (2D/3D) plasticity or yield-surface theory
+(J2/von Mises, Drucker-Prager, Mohr-Coulomb), nonlinear hardening laws,
+finite-strain plasticity, hyperelasticity, viscoelasticity,
+large-deformation (geometric) nonlinearity, fracture or damage
+mechanics, creep, the arc-length method, automatic adaptive load
+stepping, or visualization.
 """
 
 from femtoolkit import logging_config  # noqa: F401  (attaches NullHandler on import)

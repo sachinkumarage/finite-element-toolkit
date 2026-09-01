@@ -2,7 +2,7 @@
 
 An open-source Python toolkit for developing finite element analysis (FEA) capabilities, built incrementally as a series of versioned milestones.
 
-**This is the Version 13 release.** Version 1 established the project's architecture and core domain model. Version 2 added the basic mathematical foundation for FEA. Version 3 turned that into a validated **1D structural analysis** capability (a bar element, `StaticLinearAnalysis`, and results). Version 4 extended the same analysis workflow to **2D truss structures**: two translational DOFs per node, a `TrussElement2D` transformed from local to global coordinates via its direction cosines, and X/Y loads, constraints, displacements, reactions, and member forces. Version 5 added **2D Euler-Bernoulli beam and frame analysis**: a rotational DOF per node, a `FrameElement2D` that resists axial force, shear force, and bending moment, and per-element shear/moment/bending-stress results. Version 6 introduced the toolkit's first true **2D continuum element**: a `CSTElement2D` (3-node constant strain triangle) representing a finite *area* of material rather than a line member, with plane stress/strain constitutive models, a strain-displacement (`B`) matrix, and von Mises/principal stress recovery. Version 7 added a second continuum element, `QuadElement2D` (4-node bilinear quadrilateral, "Q4"): natural coordinates, isoparametric mapping, the Jacobian, and 2x2 Gauss quadrature, needed because -- unlike the CST element -- a Q4 element's strain-displacement matrix has no closed form and varies within the element. Version 8 adds **automatic structured 2D mesh generation**: `create_quad_mesh`/`create_triangular_mesh` turn a rectangular domain and a subdivision count into a fully connected, correctly oriented mesh, plus whole-mesh validation, shape-quality metrics, and a JSON export/import foundation. Version 9 adds a **lightweight 2D geometry foundation and distributed loads**: `Rectangle` with named boundary regions (`"left"`/`"right"`/`"top"`/`"bottom"`), tolerance-based `mesh.nodes_on_boundary()` node selection, generic topological boundary-edge detection, distributed surface tractions converted to equivalent nodal forces by edge integration, boundary-region boundary conditions, and a `LoadCase` workflow abstraction. Version 10 adds a **professional loading system**: `LoadCase` no longer needs a mesh up front, `LoadCombination` combines multiple load cases with load factors (`1.2 * Dead + 1.6 * Live`), `LoadManager` registers and solves every load case/combination for one mesh into a named `ResultSet`, and two new load types -- `GravityLoad` (a body force) and `TemperatureLoad` (uniform thermal expansion) -- join a simple penalty-method `MultiPointConstraint` for tying two DOFs to equal displacement, all built on the unmodified Version 3 solver. Version 11 adds a **dynamic finite element analysis foundation**: consistent and lumped element mass matrices for CST and Q4, `RayleighDamping`, a `DynamicSystem` abstraction for `M u'' + C u' + K u = F(t)`, time-dependent loads (`ConstantLoad`/`StepLoad`/`SinusoidalLoad`), natural-frequency (modal) analysis via the generalized eigenvalue problem `K phi = lambda M phi` (SciPy-backed), and Newmark-beta time integration through `DynamicAnalysis`. Version 12 adds **advanced dynamic analysis**: mass-normalized mode shapes, modal participation factors and effective modal mass, **modal superposition** (decoupling the dynamic equation into independent per-mode single-DOF equations, reusing the unmodified Version 11 Newmark machinery), modal damping ratios, **steady-state harmonic response and frequency-sweep analysis** (`[-omega^2*M + i*omega*C + K]U = F`), and a **response spectrum foundation** (interpolated spectral acceleration vs. period, plus per-mode spectral response). Version 13 adds the toolkit's first **nonlinear finite element analysis foundation**: `NonlinearAnalysis` solves `R(u) = F_ext - F_int(u) = 0` with incremental load stepping and Newton-Raphson iteration (`K_t * du = R`), a `NonlinearMaterial` interface built on an immutable trial/committed material-state pattern, an `ElasticMaterialAdapter` validating the solver against the existing linear solver, a genuine uniaxial `ElasticPerfectlyPlasticMaterial1D` model (no hardening), and nonlinear internal-force/tangent-stiffness support for CST and Q4 (with independent per-Gauss-point state for Q4) -- all without modifying any existing linear element or solver. It does **not** yet contain CAD/NURBS or curved/3D geometry, temperature gradients, rigid-body constraints, contact, unstructured or CAD-driven meshing, adaptive refinement, higher-order continuum elements, 3D beams, Timoshenko beams, plate, shell, or 3D solid elements, nonlinear dynamics, explicit time integration, random vibration, seismic-code-specific workflows/combination rules, material hardening, multiaxial plasticity, large-deformation nonlinearity, the arc-length method, or visualization.
+**This is the Version 14 release.** Version 1 established the project's architecture and core domain model. Version 2 added the basic mathematical foundation for FEA. Version 3 turned that into a validated **1D structural analysis** capability (a bar element, `StaticLinearAnalysis`, and results). Version 4 extended the same analysis workflow to **2D truss structures**: two translational DOFs per node, a `TrussElement2D` transformed from local to global coordinates via its direction cosines, and X/Y loads, constraints, displacements, reactions, and member forces. Version 5 added **2D Euler-Bernoulli beam and frame analysis**: a rotational DOF per node, a `FrameElement2D` that resists axial force, shear force, and bending moment, and per-element shear/moment/bending-stress results. Version 6 introduced the toolkit's first true **2D continuum element**: a `CSTElement2D` (3-node constant strain triangle) representing a finite *area* of material rather than a line member, with plane stress/strain constitutive models, a strain-displacement (`B`) matrix, and von Mises/principal stress recovery. Version 7 added a second continuum element, `QuadElement2D` (4-node bilinear quadrilateral, "Q4"): natural coordinates, isoparametric mapping, the Jacobian, and 2x2 Gauss quadrature, needed because -- unlike the CST element -- a Q4 element's strain-displacement matrix has no closed form and varies within the element. Version 8 adds **automatic structured 2D mesh generation**: `create_quad_mesh`/`create_triangular_mesh` turn a rectangular domain and a subdivision count into a fully connected, correctly oriented mesh, plus whole-mesh validation, shape-quality metrics, and a JSON export/import foundation. Version 9 adds a **lightweight 2D geometry foundation and distributed loads**: `Rectangle` with named boundary regions (`"left"`/`"right"`/`"top"`/`"bottom"`), tolerance-based `mesh.nodes_on_boundary()` node selection, generic topological boundary-edge detection, distributed surface tractions converted to equivalent nodal forces by edge integration, boundary-region boundary conditions, and a `LoadCase` workflow abstraction. Version 10 adds a **professional loading system**: `LoadCase` no longer needs a mesh up front, `LoadCombination` combines multiple load cases with load factors (`1.2 * Dead + 1.6 * Live`), `LoadManager` registers and solves every load case/combination for one mesh into a named `ResultSet`, and two new load types -- `GravityLoad` (a body force) and `TemperatureLoad` (uniform thermal expansion) -- join a simple penalty-method `MultiPointConstraint` for tying two DOFs to equal displacement, all built on the unmodified Version 3 solver. Version 11 adds a **dynamic finite element analysis foundation**: consistent and lumped element mass matrices for CST and Q4, `RayleighDamping`, a `DynamicSystem` abstraction for `M u'' + C u' + K u = F(t)`, time-dependent loads (`ConstantLoad`/`StepLoad`/`SinusoidalLoad`), natural-frequency (modal) analysis via the generalized eigenvalue problem `K phi = lambda M phi` (SciPy-backed), and Newmark-beta time integration through `DynamicAnalysis`. Version 12 adds **advanced dynamic analysis**: mass-normalized mode shapes, modal participation factors and effective modal mass, **modal superposition** (decoupling the dynamic equation into independent per-mode single-DOF equations, reusing the unmodified Version 11 Newmark machinery), modal damping ratios, **steady-state harmonic response and frequency-sweep analysis** (`[-omega^2*M + i*omega*C + K]U = F`), and a **response spectrum foundation** (interpolated spectral acceleration vs. period, plus per-mode spectral response). Version 13 adds the toolkit's first **nonlinear finite element analysis foundation**: `NonlinearAnalysis` solves `R(u) = F_ext - F_int(u) = 0` with incremental load stepping and Newton-Raphson iteration (`K_t * du = R`), a `NonlinearMaterial` interface built on an immutable trial/committed material-state pattern, an `ElasticMaterialAdapter` validating the solver against the existing linear solver, a genuine uniaxial `ElasticPerfectlyPlasticMaterial1D` model (no hardening), and nonlinear internal-force/tangent-stiffness support for CST and Q4 (with independent per-Gauss-point state for Q4) -- all without modifying any existing linear element or solver. Version 14 upgrades material plasticity from that fixed-yield model to genuine **hardening**, built entirely on Version 13's unchanged `NonlinearMaterial` interface and trial/committed state pattern: `BilinearIsotropicHardeningMaterial1D` (an expanding yield surface, `sigma_y = sigma_y0 + H*alpha`), `BilinearKinematicHardeningMaterial1D` (a translating yield surface via a back stress `X`, reproducing the Bauschinger effect), `MultilinearIsotropicHardeningMaterial1D` (a full piecewise-linear stress-strain curve for monotonic loading), and `DecoupledIsotropicHardeningAdapter2D` (bringing genuine, if deliberately simplified, plastic behavior to CST/Q4). Both bilinear models use an exact 1D return-mapping algorithm and a consistent algorithmic tangent (`D_t = E*H/(E+H)`); `H = 0` exactly reproduces `ElasticPerfectlyPlasticMaterial1D`. It does **not** yet contain CAD/NURBS or curved/3D geometry, temperature gradients, rigid-body constraints, contact, unstructured or CAD-driven meshing, adaptive refinement, higher-order continuum elements, 3D beams, Timoshenko beams, plate, shell, or 3D solid elements, nonlinear dynamics, explicit time integration, random vibration, seismic-code-specific workflows/combination rules, multiaxial (2D/3D) plasticity or yield-surface theory (J2/von Mises, Drucker-Prager, Mohr-Coulomb), nonlinear hardening laws, finite-strain plasticity, hyperelasticity, viscoelasticity, large-deformation nonlinearity, the arc-length method, or visualization.
 
 ## Current Features
 
@@ -148,6 +148,16 @@ An open-source Python toolkit for developing finite element analysis (FEA) capab
 - **Nonlinear CST/Q4 support** — `F_int = integral(B^T*sigma) dV` and `K_t = integral(B^T*D_t*B) dV`, built from public element attributes without modifying `CSTElement2D`/`QuadElement2D`'s existing linear `stiffness_matrix`; Q4 maintains four **independent** material states, one per 2x2 Gauss point, never shared or averaged
 - **Reactions and equilibrium** — `reactions = F_int(u) - F_ext`, the direct nonlinear analogue of the linear solver's `R = K@u - F`; `sum(reactions) + sum(external forces) ~= 0` verified for every converged load step
 - **Engineering validation** — the critical linear-regression check (`ElasticMaterialAdapter` through `NonlinearAnalysis` matches `StaticLinearAnalysis` exactly, CST and Q4); the bilinear material against its closed-form response including unload/reload; a well-posed 1D reduced system (two parallel bars with staggered yield capacities) showing elastic response, yielding, a reduced tangent stiffness, more Newton iterations post-yield, and a final state matching the closed-form solution (see [Version 13](#version-13) below)
+
+**Version 14 — advanced material plasticity**
+
+- **`BilinearIsotropicHardeningMaterial1D`** — the yield surface expands symmetrically, `f = |sigma| - (sigma_y0 + H*alpha)`; a single closed-form return map (`d_gamma = f_trial/(E+H)`) and consistent tangent (`D_t = E*H/(E+H)` once yielded); `hardening_modulus=0` reproduces `ElasticPerfectlyPlasticMaterial1D` exactly (verified regression)
+- **`BilinearKinematicHardeningMaterial1D`** — the yield surface translates instead of growing, `f = |sigma - X| - sigma_y0`, via a linear back-stress evolution law (`dX = H*d(epsilon_p)`); reproduces the **Bauschinger effect** (earlier reverse yielding after forward plastic flow), validated through a full tension-unload-compression-unload-tension cycle
+- **`MultilinearIsotropicHardeningMaterial1D`** — a full piecewise-linear stress-strain curve (elastic segment included, so `youngs_modulus` is derived from it); direct, non-iterative evaluation for monotonic loading; raises `UnsupportedLoadingPathError` on an unload/reversal attempt rather than silently returning a wrong stress
+- **Extended `MaterialState`** — two new, zero-defaulted fields (`hardening_variable`/`alpha`, `back_stress`/`X`) and a computed `elastic_strain` property, all backward compatible with every Version 13 material; three new domain exceptions (`InvalidMaterialStateError`, `ConstitutiveUpdateError`, `UnsupportedLoadingPathError`) cover hardening-specific failure modes without exposing raw NumPy errors
+- **`DecoupledIsotropicHardeningAdapter2D`** — brings genuine (not just linear-adapter-validated) plastic behavior to CST/Q4 by applying the bilinear isotropic return map independently to each of the 3 Voigt strain components; explicitly documented as an architecture-validation simplification, not real multiaxial (J2/von Mises) plasticity, which remains out of scope until Version 15
+- **Zero changes to existing architecture** — `femtoolkit.analysis.nonlinear_elements` and `NonlinearAnalysis` needed no modification at all: both were already fully generic over any `NonlinearMaterial`, so every Version 14 material (and CST/Q4 genuine plasticity) works through the unmodified Version 13 solver
+- **Engineering validation** — a single hardening bar's Newton-Raphson solution against the closed-form monotonic post-yield strain (well-posed under force control, unlike a perfectly-plastic bar); the full Bauschinger cycle quantifying the reverse-yield-stress reduction; the multilinear curve against an independently hand-rolled piecewise-linear evaluation (see [Version 14](#version-14) below)
 
 ## Installation
 
@@ -1553,6 +1563,84 @@ Reactions are computed the same way as the linear solver's `R = K@u - F`, genera
 
 Version 13 does not include hardening (isotropic or kinematic), multiaxial plasticity or yield-surface theory (Drucker-Prager, Mohr-Coulomb, etc.), hyperelasticity or viscoelasticity, large-deformation (geometric) nonlinearity, contact, fracture or damage mechanics, the arc-length method, automatic adaptive load stepping, or nonlinear dynamics -- only the Newton-Raphson/tangent-stiffness/trial-committed-state *foundation*, a validated elastic-perfectly-plastic 1D model, and CST/Q4 architectural support are provided. See the [Roadmap](#roadmap).
 
+## Version 14
+
+Version 13's `ElasticPerfectlyPlasticMaterial1D` has a fixed yield stress: once yielded, stress can never exceed `sigma_y` no matter how much further the material strains. Real materials usually **harden** instead -- their resistance to further plastic flow grows (or shifts) as plastic deformation accumulates. Version 14 adds hardening plasticity, built entirely on Version 13's existing `NonlinearMaterial` interface and trial/committed `MaterialState` pattern -- no new material protocol, no changes to the CST/Q4 element functions, and no changes to the Newton-Raphson solver were needed, because both were already fully generic over any conforming material.
+
+```text
+Total Strain -> Trial Elastic Predictor -> Yield Function -> Elastic or Plastic?
+    -> Return Mapping -> Updated Stress -> Updated Plastic Strain
+    -> Updated Internal Variables -> Consistent Tangent
+```
+
+### Strain decomposition and the elastic stress law
+
+```text
+epsilon = epsilon_e + epsilon_p        (total = elastic + plastic strain)
+sigma   = E * epsilon_e = E * (epsilon - epsilon_p)
+```
+
+### Bilinear isotropic hardening
+
+The yield surface **expands** symmetrically about zero stress as plastic strain accumulates:
+
+```text
+f = |sigma| - (sigma_y0 + H * alpha)      (alpha = accumulated plastic strain)
+```
+
+`sigma_y0` is the initial yield stress and `H` is the isotropic hardening modulus. Physically, this models a material that becomes uniformly stronger (in both tension and compression) after being plastically deformed. `BilinearIsotropicHardeningMaterial1D(youngs_modulus, yield_stress, hardening_modulus)` implements it; `hardening_modulus=0` reproduces `ElasticPerfectlyPlasticMaterial1D`'s stress-strain response exactly (verified in `tests/test_hardening_materials.py`).
+
+### Return mapping
+
+The trial (elastic-predictor) stress is computed first, assuming no new plastic flow; if it violates the yield condition, a single closed-form correction restores it to the (grown or translated) yield surface -- exact and non-iterative in 1D, since a scalar stress can only be inside, on, or trying to cross a single interval:
+
+```text
+sigma_trial = E * (epsilon - epsilon_p_old)     (elastic predictor)
+f_trial     = |eta_trial| - Y                    (eta/Y depend on the hardening type)
+d_gamma     = f_trial / (E + H)                  (plastic multiplier, if f_trial > 0)
+sigma       = sigma_trial - E * d_gamma * sign(eta_trial)
+epsilon_p   = epsilon_p_old + d_gamma * sign(eta_trial)
+```
+
+### Consistent (algorithmic) tangent
+
+```text
+D_t = E                    (elastic step)
+D_t = E * H / (E + H)      (plastic step -- exact linearization of the return map)
+```
+
+Using this exact linearization (not just `E`) is what gives Newton-Raphson its fast convergence once yielded; `H = 0` would make the plastic tangent exactly zero, so it is floored to a small, physically negligible fraction of `E` -- the same numerical safeguard `ElasticPerfectlyPlasticMaterial1D` already uses.
+
+### Bilinear kinematic hardening and the Bauschinger effect
+
+Instead of growing, the yield surface **translates** by a back stress `X`, keeping a fixed size:
+
+```text
+f = |sigma - X| - sigma_y0
+```
+
+`BilinearKinematicHardeningMaterial1D(youngs_modulus, yield_stress, hardening_modulus)` implements a simple linear back-stress evolution law (`dX = H * d(epsilon_p)`, no Armstrong-Frederick or other nonlinear back-stress models). The practical consequence is the **Bauschinger effect**: after yielding in tension, the material re-yields in *compression* at a smaller stress magnitude than its virgin compressive yield stress, because the yield surface has shifted with it (`examples/kinematic_hardening.py`, `tests/validation/test_bauschinger_effect.py`).
+
+### Multilinear isotropic hardening
+
+`MultilinearIsotropicHardeningMaterial1D(strain_points, stress_points)` represents a full piecewise-linear stress-strain curve directly (the first segment, from the origin, *is* the elastic response, so Young's modulus is derived from it rather than supplied separately). Because stress is then an unambiguous, direct function of total strain, no return mapping is needed -- but only for **monotonic loading**: attempting to unload or reverse direction raises `UnsupportedLoadingPathError` rather than silently returning a physically wrong stress, since real unloading must follow the elastic slope back from the current point, not retrace the original curve.
+
+### Material-state architecture
+
+`MaterialState` gains two new, zero-defaulted fields that every Version 13 material silently ignores: `hardening_variable` (`alpha`, isotropic hardening) and `back_stress` (`X`, kinematic hardening), plus a computed `elastic_strain` property (`epsilon - epsilon_p`). The trial/committed pattern is unchanged: `trial_state(strain, committed_state)` remains a pure function that never mutates `committed_state`, so a non-converged Newton iteration is still always safely discardable -- rollback is simply "don't use the returned trial state." Three new domain exceptions cover failure modes hardening introduces: `InvalidMaterialStateError` (a committed state shape mismatch), `ConstitutiveUpdateError` (a non-finite strain reaching a material), and `UnsupportedLoadingPathError` (multilinear hardening's monotonic-loading limitation).
+
+### CST and Q4 plasticity
+
+CST and Q4 gain **genuine** plastic behavior (not just the linear-adapter architecture validation from Version 13) through `DecoupledIsotropicHardeningAdapter2D`, which applies `BilinearIsotropicHardeningMaterial1D`'s exact scalar return map **independently to each of the 3 Voigt strain components** (`epsilon_x`, `epsilon_y`, `gamma_xy`), with no coupling between them. This is explicitly *not* a claim of physically accurate multiaxial plasticity -- a real model needs a yield surface expressed in stress invariants (von Mises/J2) and a corresponding multi-dimensional return-mapping algorithm, out of scope until Version 15 -- but it is real enough to exercise the full architecture honestly: internal force and tangent stiffness that genuinely change as components yield, Newton-Raphson needing more iterations once that happens, and (for Q4) four **independently** yielding Gauss points within the same element (`examples/plastic_cst.py`, `examples/plastic_q4.py`).
+
+### Engineering validation
+
+`tests/validation/` adds: (1) a single hardening bar's Newton-Raphson solution against the closed-form monotonic post-yield strain (well-posed under simple force control, unlike a perfectly-plastic bar, since hardening keeps the resisting force strictly increasing); (2) the full cyclic tension-unload-compression-unload-tension path, quantifying the Bauschinger effect (the reverse-yield stress magnitude is smaller than the virgin yield stress); (3) the multilinear curve against an independently hand-rolled piecewise-linear evaluation, including segment transitions and extrapolation beyond the last point.
+
+### Limitations
+
+Version 14 does not include 3D or true 2D (J2/von Mises) multiaxial plasticity, Drucker-Prager, Mohr-Coulomb, Gurson, Cam-Clay, anisotropic plasticity, nonlinear (e.g. Armstrong-Frederick) hardening laws, finite-strain plasticity, hyperelasticity, viscoelasticity, large-deformation (geometric) nonlinearity, contact, fracture or damage mechanics, creep, the arc-length method, or automatic adaptive load stepping -- only the 1D constitutive plasticity foundation (return mapping, consistent tangent, trial/committed state, hardening laws) and CST/Q4 architectural (not physical) multiaxial support are provided. See the [Roadmap](#roadmap).
+
 ## Project Structure
 
 ```text
@@ -1563,7 +1651,11 @@ finite-element-toolkit/
 │   ├── materials/          # Material, LinearElastic2D (2D constitutive model),
 │   │                       # nonlinear.py (NonlinearMaterial, MaterialState,
 │   │                       # ElasticMaterialAdapter,
-│   │                       # ElasticPerfectlyPlasticMaterial1D)
+│   │                       # ElasticPerfectlyPlasticMaterial1D),
+│   │                       # hardening.py (BilinearIsotropicHardeningMaterial1D,
+│   │                       # BilinearKinematicHardeningMaterial1D,
+│   │                       # MultilinearIsotropicHardeningMaterial1D,
+│   │                       # DecoupledIsotropicHardeningAdapter2D)
 │   ├── mesh/               # Node, Element, BarElement, TrussElement2D,
 │   │                       # FrameElement2D, CSTElement2D, QuadElement2D, Mesh
 │   │                       # (incl. nodes_on_boundary),
@@ -1694,14 +1786,19 @@ python examples/nonlinear_material.py         # Version 13: elastic-perfectly-pl
 python examples/nonlinear_bar.py              # Version 13: Newton-Raphson, staggered-yielding bar system
 python examples/nonlinear_cst.py              # Version 13: nonlinear CST patch, Newton-Raphson load stepping
 python examples/nonlinear_quad.py             # Version 13: nonlinear Q4, independent Gauss-point state
+python examples/bilinear_isotropic_hardening.py  # Version 14: expanding yield surface, elastic to hardening
+python examples/kinematic_hardening.py           # Version 14: cyclic loading, Bauschinger effect
+python examples/multilinear_hardening.py         # Version 14: multi-segment stress-strain curve
+python examples/plastic_cst.py                   # Version 14: CST with genuine hardening plasticity
+python examples/plastic_q4.py                    # Version 14: Q4 with independently plastic Gauss points
 ```
 
 ## Roadmap
 
 Future versions will build a more complete FEA solver on top of this foundation. None of the following is implemented yet:
 
-- **Version 14** — Advanced material plasticity: isotropic/kinematic/bilinear/multilinear hardening, a consistent tangent modulus, return-mapping algorithms, and richer stress-strain/plastic-strain history
-- **Later** — Unstructured/CAD-driven meshing, 3D elements, higher-order continuum elements, large-deformation nonlinearity, contact, seismic-code response-spectrum combination rules, GUI, visualization, reporting, and more
+- **Version 15** — 3D solid elements and a J2 plasticity foundation: 8-node hexahedral and 4-node tetrahedral elements, 3D strain/stress tensors, von Mises stress, J2 plasticity, 3D return mapping, equivalent plastic strain, and a 3D constitutive tangent
+- **Later** — Unstructured/CAD-driven meshing, higher-order continuum elements, large-deformation nonlinearity, contact, seismic-code response-spectrum combination rules, GUI, visualization, reporting, and more
 
 ## License
 

@@ -14,6 +14,7 @@ from femtoolkit.analysis.nonlinear_elements import (
 )
 from femtoolkit.exceptions import InvalidElementError, ValidationError
 from femtoolkit.materials import (
+    DecoupledIsotropicHardeningAdapter2D,
     ElasticMaterialAdapter,
     ElasticPerfectlyPlasticMaterial1D,
     LinearElastic2D,
@@ -225,3 +226,114 @@ def test_dispatcher_rejects_unsupported_element_type() -> None:
 
     with pytest.raises(InvalidElementError):
         element_internal_force_and_tangent(bar, material, [], state)
+
+
+# --- Version 14: CST/Q4 plasticity via DecoupledIsotropicHardeningAdapter2D ---
+
+
+def test_cst_plasticity_reduces_tangent_when_yielded(cst_triangle: CSTElement2D) -> None:
+    material = DecoupledIsotropicHardeningAdapter2D(
+        youngs_modulus=210e9, yield_stress=150e6, hardening_modulus=20e9
+    )
+    committed_state = initial_element_state(cst_triangle, material)
+    # A large x-displacement at node 2 drives epsilon_x well past yield strain.
+    displacements = np.array([0.0, 0.0, 0.01, 0.0, 0.0, 0.0])
+
+    f_int, k_t, trial_state = cst_internal_force_and_tangent(
+        cst_triangle, material, displacements, committed_state
+    )
+
+    assert trial_state.states[0].yielded[0]
+    assert f_int.shape == (6,)
+    assert k_t.shape == (6, 6)
+    # The tangent stiffness must differ from (be softer than) the linear one.
+    assert not np.allclose(k_t, cst_triangle.stiffness_matrix, atol=1e-6)
+
+
+def test_cst_plasticity_state_is_not_shared_across_elements() -> None:
+    """Two separate CST elements assigned independent committed states must
+    not interfere with each other's plastic history.
+    """
+    material = DecoupledIsotropicHardeningAdapter2D(
+        youngs_modulus=210e9, yield_stress=150e6, hardening_modulus=20e9
+    )
+    node_1 = Node(id=1, x=0.0, y=0.0, z=0.0)
+    node_2 = Node(id=2, x=1.0, y=0.0, z=0.0)
+    node_3 = Node(id=3, x=0.0, y=1.0, z=0.0)
+    element_a = CSTElement2D(
+        id=1, nodes=(node_1, node_2, node_3), material=LINEAR_MATERIAL, thickness=0.01
+    )
+    element_b = CSTElement2D(
+        id=2, nodes=(node_1, node_2, node_3), material=LINEAR_MATERIAL, thickness=0.01
+    )
+
+    state_a = initial_element_state(element_a, material)
+    state_b = initial_element_state(element_b, material)
+
+    _, _, trial_a = cst_internal_force_and_tangent(
+        element_a, material, np.array([0.0, 0.0, 0.01, 0.0, 0.0, 0.0]), state_a
+    )
+    _, _, trial_b = cst_internal_force_and_tangent(
+        element_b, material, np.zeros(6), state_b
+    )
+
+    assert trial_a.states[0].yielded[0]
+    assert not np.any(trial_b.states[0].yielded)
+
+
+def test_quad_plasticity_gauss_points_independently_yield(quad_square: QuadElement2D) -> None:
+    material = DecoupledIsotropicHardeningAdapter2D(
+        youngs_modulus=210e9, yield_stress=250e6, hardening_modulus=20e9
+    )
+    committed_state = initial_element_state(quad_square, material)
+    # Bending-like displacement: large strain gradient across the element.
+    displacements = np.array([0.0, 0.0, 0.0, 0.0, 0.005, 0.0, 0.0, 0.0])
+
+    _, k_t, trial_state = quad_internal_force_and_tangent(
+        quad_square, material, displacements, committed_state
+    )
+
+    yielded_flags = [np.any(gauss_state.yielded) for gauss_state in trial_state.states]
+    # At least one Gauss point yields and at least one stays elastic for this
+    # non-uniform displacement field -- proof of independent per-point state.
+    assert any(yielded_flags)
+    assert not all(yielded_flags)
+    assert k_t.shape == (8, 8)
+
+
+def test_quad_plasticity_convergence_through_full_solver() -> None:
+    """A small end-to-end check that Newton-Raphson still converges when the
+    tangent stiffness genuinely changes (not just linear-adapter validation).
+    """
+    from femtoolkit.analysis import BoundaryCondition, NodalLoad, TranslationDOF
+    from femtoolkit.analysis.nonlinear_analysis import NonlinearAnalysis, NonlinearSolverSettings
+    from femtoolkit.mesh.mesh import Mesh
+
+    node_1 = Node(id=1, x=0.0, y=0.0, z=0.0)
+    node_2 = Node(id=2, x=1.0, y=0.0, z=0.0)
+    node_3 = Node(id=3, x=1.0, y=1.0, z=0.0)
+    node_4 = Node(id=4, x=0.0, y=1.0, z=0.0)
+    quad = QuadElement2D(
+        id=1, nodes=(node_1, node_2, node_3, node_4), material=LINEAR_MATERIAL, thickness=0.01
+    )
+    mesh = Mesh()
+    for node in (node_1, node_2, node_3, node_4):
+        mesh.add_node(node)
+    mesh.add_element(quad)
+
+    material = DecoupledIsotropicHardeningAdapter2D(
+        youngs_modulus=200e9, yield_stress=150e6, hardening_modulus=20e9
+    )
+    settings = NonlinearSolverSettings(load_steps=10, tolerance=1e-9, max_iterations=40)
+    analysis = NonlinearAnalysis(mesh, {quad.id: material}, settings)
+    analysis.add_boundary_condition(BoundaryCondition(1, TranslationDOF.X, 0.0))
+    analysis.add_boundary_condition(BoundaryCondition(1, TranslationDOF.Y, 0.0))
+    analysis.add_boundary_condition(BoundaryCondition(4, TranslationDOF.X, 0.0))
+    analysis.add_boundary_condition(BoundaryCondition(4, TranslationDOF.Y, 0.0))
+    analysis.add_load(NodalLoad(2, TranslationDOF.X, 3.0e6))
+    analysis.add_load(NodalLoad(3, TranslationDOF.X, 3.0e6))
+    result = analysis.solve()
+
+    assert result.converged
+    final_states = result.step_results[-1].element_states[quad.id].states
+    assert any(np.any(state.yielded) for state in final_states)

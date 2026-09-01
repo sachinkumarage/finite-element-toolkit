@@ -1,6 +1,7 @@
 """Custom exception types shared across the Finite Element Toolkit domain model."""
 
 from femtoolkit.exceptions.exceptions import (
+    ConstitutiveUpdateError,
     DegenerateElementError,
     DuplicateIDError,
     DuplicateNodeCoordinatesError,
@@ -10,12 +11,15 @@ from femtoolkit.exceptions.exceptions import (
     InsufficientConstraintsError,
     InvalidAnalysisError,
     InvalidElementError,
+    InvalidMaterialStateError,
     NonlinearConvergenceError,
     SingularSystemError,
+    UnsupportedLoadingPathError,
     ValidationError,
 )
 
 __all__ = [
+    "ConstitutiveUpdateError",
     "DegenerateElementError",
     "DuplicateIDError",
     "DuplicateNodeCoordinatesError",
@@ -25,7 +29,9 @@ __all__ = [
     "InsufficientConstraintsError",
     "InvalidAnalysisError",
     "InvalidElementError",
+    "InvalidMaterialStateError",
     "NonlinearConvergenceError",
     "SingularSystemError",
+    "UnsupportedLoadingPathError",
     "ValidationError",
 ]

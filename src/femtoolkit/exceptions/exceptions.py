@@ -147,3 +147,41 @@ class NonlinearConvergenceError(FiniteElementToolkitError):
         """
         super().__init__(message)
         self.step_results = step_results
+
+
+class InvalidMaterialStateError(FiniteElementToolkitError):
+    """Raised when a :class:`~femtoolkit.materials.nonlinear.MaterialState` is incompatible
+    with the material being evaluated.
+
+    For example, passing a scalar (1D) committed state's ``plastic_strain``
+    to a 2D, 3-component material's
+    :meth:`~femtoolkit.materials.nonlinear.NonlinearMaterial.trial_state`,
+    or vice versa. This is a defensive check raised *before* the mismatch
+    can propagate into a confusing NumPy broadcasting error deep inside a
+    return-mapping computation.
+    """
+
+
+class ConstitutiveUpdateError(FiniteElementToolkitError):
+    """Raised when a material's return-mapping (constitutive) update fails numerically.
+
+    For example, a non-finite (``NaN``/``inf``) strain reaching a
+    material's :meth:`~femtoolkit.materials.nonlinear.NonlinearMaterial.trial_state`
+    -- typically the downstream symptom of a diverging Newton-Raphson
+    iteration elsewhere in the analysis -- is caught here and reported as
+    a single, clear domain error rather than an opaque NumPy warning or a
+    silently propagated ``NaN`` stress.
+    """
+
+
+class UnsupportedLoadingPathError(FiniteElementToolkitError):
+    """Raised when a material model is driven along a loading path it does not support.
+
+    :class:`~femtoolkit.materials.hardening.MultilinearIsotropicHardeningMaterial1D`
+    is defined directly as a stress-strain curve in *total strain* space
+    and only supports monotonic (radial) loading -- see that class's
+    docstring for why unloading/reversal cannot be represented correctly
+    without additional (unimplemented) bookkeeping. Attempting to unload
+    or reverse the loading direction raises this exception rather than
+    silently returning a physically wrong stress.
+    """

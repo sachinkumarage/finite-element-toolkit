@@ -11,6 +11,16 @@ a subclass or modification of ``AnalysisResult`` or
 ``DynamicResult`` -- neither of those is affected by this module's
 existence, and every static/dynamic result from Versions 1-12 keeps
 working exactly as before.
+
+Version 14 adds no new classes here: hardening plasticity's extra state
+(the isotropic hardening variable ``alpha`` and the kinematic back
+stress ``X``) already travels through unchanged, since it lives on
+:class:`~femtoolkit.materials.nonlinear.MaterialState` itself, which
+this module already stores in full per element/Gauss-point. Only two
+convenience accessors are new
+(:meth:`NonlinearAnalysisResult.element_hardening_variable`,
+:meth:`NonlinearAnalysisResult.element_back_stress`), mirroring the
+existing :meth:`~NonlinearAnalysisResult.element_plastic_strain`.
 """
 
 from __future__ import annotations
@@ -186,13 +196,41 @@ class NonlinearAnalysisResult:
         """Return one element's stress for one load step. See :meth:`element_state`."""
         return self.element_state(element_id, step, gauss_point).stress
 
+    def element_elastic_strain(
+        self, element_id: int, step: int = -1, gauss_point: int = 0
+    ) -> float | np.ndarray:
+        """Return one element's elastic strain for one load step. See :meth:`element_state`."""
+        return self.element_state(element_id, step, gauss_point).elastic_strain
+
     def element_plastic_strain(
         self, element_id: int, step: int = -1, gauss_point: int = 0
     ) -> float | np.ndarray:
         """Return one element's plastic strain for one load step. See :meth:`element_state`."""
         return self.element_state(element_id, step, gauss_point).plastic_strain
 
-    def element_yielded(self, element_id: int, step: int = -1, gauss_point: int = 0) -> bool:
+    def element_hardening_variable(
+        self, element_id: int, step: int = -1, gauss_point: int = 0
+    ) -> float | np.ndarray:
+        """Return one element's isotropic hardening variable (``alpha``) for one load step.
+
+        See :meth:`element_state`. Zero for materials with no isotropic
+        hardening (e.g. every Version 13 material).
+        """
+        return self.element_state(element_id, step, gauss_point).hardening_variable
+
+    def element_back_stress(
+        self, element_id: int, step: int = -1, gauss_point: int = 0
+    ) -> float | np.ndarray:
+        """Return one element's kinematic hardening back stress (``X``) for one load step.
+
+        See :meth:`element_state`. Zero for materials with no kinematic
+        hardening (e.g. every Version 13 material).
+        """
+        return self.element_state(element_id, step, gauss_point).back_stress
+
+    def element_yielded(
+        self, element_id: int, step: int = -1, gauss_point: int = 0
+    ) -> bool | np.ndarray:
         """Return whether one element had yielded at one load step. See :meth:`element_state`."""
         return self.element_state(element_id, step, gauss_point).yielded
 

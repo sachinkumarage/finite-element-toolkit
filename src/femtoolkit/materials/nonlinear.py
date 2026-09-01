@@ -45,6 +45,18 @@ Two concrete materials are provided:
   :mod:`femtoolkit.analysis.nonlinear_elements`'s docstring for how CST
   and Q4 nonlinear support is validated instead, with
   :class:`ElasticMaterialAdapter`).
+
+Version 14 (:mod:`femtoolkit.materials.hardening`) builds hardening
+plasticity models directly on top of the interface defined here, without
+any change to it: :class:`NonlinearMaterial` already had exactly the
+three methods (``initial_state``/``trial_state``/``tangent_modulus``) a
+hardening return-mapping algorithm needs, and the trial/committed state
+pattern already gives hardening materials the same safe-to-discard
+Newton iteration guarantee for free. The only change made *here* for
+Version 14 is additive: two new, zero-defaulted :class:`MaterialState`
+fields (``hardening_variable`` for isotropic hardening's expanding yield
+surface, ``back_stress`` for kinematic hardening's translating one) that
+every Version 13 material silently ignores.
 """
 
 from __future__ import annotations
@@ -88,13 +100,43 @@ class MaterialState:
         plastic_strain: Accumulated plastic (permanent) strain, same
             shape as ``strain``. Zero for a purely elastic material.
         yielded: Whether this state is on (or beyond) the material's
-            yield surface.
+            yield surface. A plain ``bool`` for every material introduced
+            through Version 13, or a boolean array with one entry per
+            independently-evaluated component for a decoupled
+            multi-component material (see
+            :class:`~femtoolkit.materials.hardening.DecoupledIsotropicHardeningAdapter2D`).
+        hardening_variable: The accumulated (isotropic) hardening
+            variable, conventionally written ``alpha`` -- the total
+            accumulated plastic strain magnitude, which drives how far
+            an isotropic yield surface has expanded
+            (:class:`~femtoolkit.materials.hardening.BilinearIsotropicHardeningMaterial1D`).
+            Zero for materials with no isotropic hardening (the default,
+            so every Version 13 material is unaffected by this field's
+            addition).
+        back_stress: The kinematic hardening back-stress, conventionally
+            written ``X`` -- the center of a *translated* (rather than
+            expanded) yield surface
+            (:class:`~femtoolkit.materials.hardening.BilinearKinematicHardeningMaterial1D`).
+            Zero for materials with no kinematic hardening (the default).
     """
 
     strain: float | np.ndarray
     stress: float | np.ndarray
     plastic_strain: float | np.ndarray
-    yielded: bool
+    yielded: bool | np.ndarray
+    hardening_variable: float | np.ndarray = 0.0
+    back_stress: float | np.ndarray = 0.0
+
+    @property
+    def elastic_strain(self) -> float | np.ndarray:
+        """The elastic strain, ``epsilon_e = epsilon - epsilon_p``.
+
+        Not stored directly (there is nothing to keep consistent by
+        storing it -- it is always exactly this difference), but exposed
+        as a convenience since "elastic strain" is a state variable
+        engineers reason about directly.
+        """
+        return self.strain - self.plastic_strain
 
     @staticmethod
     def zero(like: float | np.ndarray = 0.0) -> MaterialState:
@@ -110,7 +152,12 @@ class MaterialState:
         """
         zero_value = 0.0 if np.isscalar(like) else np.zeros_like(np.asarray(like, dtype=float))
         return MaterialState(
-            strain=zero_value, stress=zero_value, plastic_strain=zero_value, yielded=False
+            strain=zero_value,
+            stress=zero_value,
+            plastic_strain=zero_value,
+            yielded=False,
+            hardening_variable=zero_value,
+            back_stress=zero_value,
         )
 
 
