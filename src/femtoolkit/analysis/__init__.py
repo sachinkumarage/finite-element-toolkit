@@ -87,8 +87,10 @@ from femtoolkit.analysis.nonlinear_elements import (
     NonlinearElementState,
     cst_internal_force_and_tangent,
     element_internal_force_and_tangent,
+    hex8_internal_force_and_tangent,
     initial_element_state,
     quad_internal_force_and_tangent,
+    tet4_internal_force_and_tangent,
 )
 from femtoolkit.analysis.spectrum import (
     ModalSpectralResponseResult,
@@ -101,7 +103,9 @@ from femtoolkit.analysis.stiffness import (
     cst_element_stiffness,
     frame_element_stiffness_2d,
     frame_element_stiffness_local,
+    hex8_element_stiffness,
     quad_element_stiffness,
+    tet4_element_stiffness,
     truss_element_stiffness_2d,
 )
 from femtoolkit.analysis.system import LinearSystem, build_force_vector, solve
@@ -184,6 +188,8 @@ __all__ = [
     "gravity_load_to_nodal_loads",
     "harmonic_response",
     "has_converged",
+    "hex8_element_stiffness",
+    "hex8_internal_force_and_tangent",
     "influence_vector",
     "initial_element_state",
     "mass_normalize_mode_shapes",
@@ -200,6 +206,8 @@ __all__ = [
     "quad_internal_force_and_tangent",
     "residual_norm_ratio",
     "solve",
+    "tet4_element_stiffness",
+    "tet4_internal_force_and_tangent",
     "thermal_corrected_strain",
     "thermal_corrected_stress",
     "thermal_load_to_nodal_loads",

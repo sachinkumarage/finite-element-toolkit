@@ -167,3 +167,97 @@ def strain_from_displacements(b_matrix: np.ndarray, displacements: Sequence[floa
         A length-3 NumPy array, ``[epsilon_x, epsilon_y, gamma_xy]``.
     """
     return b_matrix @ np.asarray(displacements, dtype=float)
+
+
+def _solid_strain_displacement_matrix(
+    dn_dx: Sequence[float], dn_dy: Sequence[float], dn_dz: Sequence[float]
+) -> np.ndarray:
+    """Build a 6x(3N) 3D strain-displacement matrix from N nodes' physical derivatives.
+
+    Shared by :func:`tet4_strain_displacement_matrix` (N=4, constant over
+    the element) and :func:`hex8_strain_displacement_matrix` (N=8,
+    evaluated at one Gauss point). For nodal displacements ordered
+    ``[u1, v1, w1, u2, v2, w2, ...]`` and Voigt strain ordered
+    ``[epsilon_xx, epsilon_yy, epsilon_zz, gamma_xy, gamma_yz, gamma_xz]``
+    (see :mod:`femtoolkit.continuum.tensor`):
+
+    .. code-block:: text
+
+        row 0 (eps_xx):  dNi/dx in the u_i column
+        row 1 (eps_yy):  dNi/dy in the v_i column
+        row 2 (eps_zz):  dNi/dz in the w_i column
+        row 3 (gamma_xy = du/dy + dv/dx): dNi/dy in u_i, dNi/dx in v_i
+        row 4 (gamma_yz = dv/dz + dw/dy): dNi/dz in v_i, dNi/dy in w_i
+        row 5 (gamma_xz = du/dz + dw/dx): dNi/dz in u_i, dNi/dx in w_i
+
+    Args:
+        dn_dx: Each node's physical ``dNi/dx`` derivative.
+        dn_dy: Each node's physical ``dNi/dy`` derivative.
+        dn_dz: Each node's physical ``dNi/dz`` derivative.
+
+    Returns:
+        A ``(6, 3*N)`` NumPy array.
+    """
+    n_nodes = len(dn_dx)
+    b_matrix = np.zeros((6, 3 * n_nodes))
+    for i in range(n_nodes):
+        dx, dy, dz = dn_dx[i], dn_dy[i], dn_dz[i]
+        col_u, col_v, col_w = 3 * i, 3 * i + 1, 3 * i + 2
+        b_matrix[0, col_u] = dx
+        b_matrix[1, col_v] = dy
+        b_matrix[2, col_w] = dz
+        b_matrix[3, col_u] = dy
+        b_matrix[3, col_v] = dx
+        b_matrix[4, col_v] = dz
+        b_matrix[4, col_w] = dy
+        b_matrix[5, col_u] = dz
+        b_matrix[5, col_w] = dx
+    return b_matrix
+
+
+def tet4_strain_displacement_matrix(
+    dn_dx: Sequence[float], dn_dy: Sequence[float], dn_dz: Sequence[float]
+) -> np.ndarray:
+    """Build the 6x12 strain-displacement (``B``) matrix for a TET4 element.
+
+    Because TET4's shape functions are linear (see
+    :func:`~femtoolkit.continuum.shape_functions.tet4_shape_functions`),
+    their physical derivatives -- and therefore ``B`` -- are constant
+    over the element, exactly like :func:`triangle_strain_displacement_matrix`'s
+    2D analogue.
+
+    Args:
+        dn_dx: The four nodes' physical ``dNi/dx`` derivatives (see
+            :func:`~femtoolkit.continuum.jacobian.physical_shape_function_derivatives_3d`).
+        dn_dy: The four nodes' physical ``dNi/dy`` derivatives.
+        dn_dz: The four nodes' physical ``dNi/dz`` derivatives.
+
+    Returns:
+        A 6x12 NumPy array, for nodal displacements ordered
+        ``[u1, v1, w1, u2, v2, w2, u3, v3, w3, u4, v4, w4]``.
+    """
+    return _solid_strain_displacement_matrix(dn_dx, dn_dy, dn_dz)
+
+
+def hex8_strain_displacement_matrix(
+    dn_dx: Sequence[float], dn_dy: Sequence[float], dn_dz: Sequence[float]
+) -> np.ndarray:
+    """Build the 6x24 strain-displacement (``B``) matrix for a HEX8 element, at one Gauss point.
+
+    Unlike TET4's constant ``B``, HEX8's trilinear shape functions give a
+    ``B`` that varies from point to point (see
+    :func:`~femtoolkit.continuum.shape_functions.hex8_shape_functions`),
+    so this is evaluated fresh at each of the element's 8 Gauss points
+    (see :mod:`femtoolkit.continuum.gauss`) -- the 3D analogue of
+    :func:`quad_strain_displacement_matrix`.
+
+    Args:
+        dn_dx: The eight nodes' physical ``dNi/dx`` derivatives at this point.
+        dn_dy: The eight nodes' physical ``dNi/dy`` derivatives at this point.
+        dn_dz: The eight nodes' physical ``dNi/dz`` derivatives at this point.
+
+    Returns:
+        A 6x24 NumPy array, for nodal displacements ordered
+        ``[u1, v1, w1, u2, v2, w2, ..., u8, v8, w8]``.
+    """
+    return _solid_strain_displacement_matrix(dn_dx, dn_dy, dn_dz)

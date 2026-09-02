@@ -61,9 +61,14 @@ from collections.abc import Sequence
 
 import numpy as np
 
-from femtoolkit.continuum.gauss import GAUSS_2X2_POINTS
-from femtoolkit.continuum.jacobian import physical_shape_function_derivatives
+from femtoolkit.continuum.gauss import GAUSS_2X2_POINTS, GAUSS_2X2X2_POINTS
+from femtoolkit.continuum.jacobian import (
+    physical_shape_function_derivatives,
+    physical_shape_function_derivatives_3d,
+)
 from femtoolkit.continuum.shape_functions import (
+    hex8_shape_function_derivatives,
+    hex8_shape_functions,
     quad_shape_function_derivatives,
     quad_shape_functions,
 )
@@ -76,6 +81,23 @@ _TRIANGLE_CONSISTENT_MASS_SHAPE = np.array(
         [1.0, 1.0, 2.0],
     ]
 )
+
+_TETRAHEDRON_CONSISTENT_MASS_SHAPE = np.array(
+    [
+        [2.0, 1.0, 1.0, 1.0],
+        [1.0, 2.0, 1.0, 1.0],
+        [1.0, 1.0, 2.0, 1.0],
+        [1.0, 1.0, 1.0, 2.0],
+    ]
+)
+"""The TET4 analogue of :data:`_TRIANGLE_CONSISTENT_MASS_SHAPE`.
+
+Derived from the closed-form volume-coordinate integral identity
+``integral(Li^a Lj^b Lk^c Ll^d) dV = 6V * a!b!c!d! / (a+b+c+d+3)!``: the
+diagonal terms (``i == j``) integrate to ``V/10`` and the off-diagonal
+terms (``i != j``) to ``V/20``, giving this ``2``/``1`` coefficient
+pattern once both are expressed as a multiple of ``V/20``.
+"""
 
 
 def _validate_positive_finite(**values: float) -> None:
@@ -218,3 +240,116 @@ def lumped_mass_matrix(consistent_mass: np.ndarray) -> np.ndarray:
         True
     """
     return np.diag(consistent_mass.sum(axis=1))
+
+
+def tetrahedron_consistent_mass_matrix(density: float, volume: float) -> np.ndarray:
+    """Compute the closed-form consistent mass matrix of a TET4 element.
+
+    .. code-block:: text
+
+        Me = (rho * V / 20) * [[2,1,1,1],[1,2,1,1],[1,1,2,1],[1,1,1,2]] (kron) I3
+
+    See :data:`_TETRAHEDRON_CONSISTENT_MASS_SHAPE` for the derivation.
+    Unlike the 2D triangle case, there is no ``thickness`` factor -- a
+    TET4 element already represents a genuine 3D volume.
+
+    Args:
+        density: Material density, in kg/m^3. Must be positive.
+        volume: Element's physical (always positive) volume, in cubic
+            meters. Must be positive.
+
+    Returns:
+        A 12x12 NumPy array, the symmetric consistent mass matrix for
+        nodal DOFs ordered ``[u1, v1, w1, u2, v2, w2, u3, v3, w3, u4, v4, w4]``.
+
+    Raises:
+        ValidationError: If ``density`` or ``volume`` is not a positive,
+            finite number.
+
+    Example:
+        >>> m = tetrahedron_consistent_mass_matrix(density=1000.0, volume=1.0)
+        >>> m.shape
+        (12, 12)
+        >>> float(m.sum()) / 3  # total element mass, summed over one direction
+        1000.0
+    """
+    _validate_positive_finite(density=density, volume=volume)
+
+    factor = density * volume / 20.0
+    return factor * np.kron(_TETRAHEDRON_CONSISTENT_MASS_SHAPE, np.eye(3))
+
+
+def hex8_shape_function_matrix(n_values: Sequence[float]) -> np.ndarray:
+    """Build the 3x24 shape function matrix ``N`` for a HEX8 element at one point.
+
+    The 3D analogue of :func:`quad_shape_function_matrix`:
+
+    .. code-block:: text
+
+        N =
+        [ N1  0   0   N2  0   0   ...  N8  0   0  ]
+        [ 0   N1  0   0   N2  0   ...  0   N8  0  ]
+        [ 0   0   N1  0   0   N2  ...  0   0   N8 ]
+
+    Args:
+        n_values: The eight shape function values ``(N1, ..., N8)`` at one
+            natural-coordinate point (see
+            :func:`~femtoolkit.continuum.shape_functions.hex8_shape_functions`).
+
+    Returns:
+        A 3x24 NumPy array.
+    """
+    n_matrix = np.zeros((3, 24))
+    for i, n_value in enumerate(n_values):
+        n_matrix[0, 3 * i] = n_value
+        n_matrix[1, 3 * i + 1] = n_value
+        n_matrix[2, 3 * i + 2] = n_value
+    return n_matrix
+
+
+def hex8_consistent_mass_matrix(
+    x_coords: Sequence[float],
+    y_coords: Sequence[float],
+    z_coords: Sequence[float],
+    density: float,
+) -> np.ndarray:
+    """Compute the consistent mass matrix of a HEX8 element by 2x2x2 Gauss quadrature.
+
+    .. code-block:: text
+
+        Me = sum over the 8 Gauss points of:
+             weight * rho * N(xi,eta,zeta)^T * N(xi,eta,zeta) * det(J(xi,eta,zeta))
+
+    The 3D analogue of :func:`quad_consistent_mass_matrix`; unlike the 2D
+    Q4 case, there is no ``thickness`` factor.
+
+    Args:
+        x_coords: The element's eight node X coordinates, in meters,
+            ordered per the isoparametric convention (see
+            :func:`~femtoolkit.continuum.shape_functions.hex8_shape_functions`).
+        y_coords: The element's eight node Y coordinates, in meters.
+        z_coords: The element's eight node Z coordinates, in meters.
+        density: Material density, in kg/m^3. Must be positive.
+
+    Returns:
+        A 24x24 NumPy array, the symmetric consistent mass matrix for
+        nodal DOFs ordered ``[u1, v1, w1, ..., u8, v8, w8]``.
+
+    Raises:
+        ValidationError: If ``density`` is not a positive, finite number.
+        DegenerateElementError: If the Jacobian determinant is not
+            positive at any of the eight Gauss points.
+    """
+    _validate_positive_finite(density=density)
+
+    mass = np.zeros((24, 24))
+    for point in GAUSS_2X2X2_POINTS:
+        n_values = hex8_shape_functions(point.xi, point.eta, point.zeta)
+        dn_dxi, dn_deta, dn_dzeta = hex8_shape_function_derivatives(point.xi, point.eta, point.zeta)
+        _, _, _, det_j = physical_shape_function_derivatives_3d(
+            dn_dxi, dn_deta, dn_dzeta, x_coords, y_coords, z_coords
+        )
+        n_matrix = hex8_shape_function_matrix(n_values)
+        mass += point.weight * density * (n_matrix.T @ n_matrix) * det_j
+
+    return mass

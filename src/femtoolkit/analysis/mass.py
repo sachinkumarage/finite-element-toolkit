@@ -24,20 +24,29 @@ from typing import Literal
 import numpy as np
 
 from femtoolkit.continuum.mass import (
+    hex8_consistent_mass_matrix,
     lumped_mass_matrix,
     quad_consistent_mass_matrix,
+    tetrahedron_consistent_mass_matrix,
     triangle_consistent_mass_matrix,
 )
 from femtoolkit.exceptions import ValidationError
 from femtoolkit.mesh.cst_element import CSTElement2D
+from femtoolkit.mesh.hex8_element import Hex8Element3D
 from femtoolkit.mesh.quad_element import QuadElement2D
+from femtoolkit.mesh.tet4_element import Tet4Element3D
 
 MassMatrixType = Literal["consistent", "lumped"]
 
-_MASS_CAPABLE_ELEMENT_TYPES = (CSTElement2D, QuadElement2D)
+_MASS_CAPABLE_ELEMENT_TYPES = (CSTElement2D, QuadElement2D, Tet4Element3D, Hex8Element3D)
+
+MassCapableElement = CSTElement2D | QuadElement2D | Tet4Element3D | Hex8Element3D
+
+_SOLID_ELEMENT_TYPES = (Tet4Element3D, Hex8Element3D)
+"""Volume-based (no ``thickness``) 3D solid element types, Version 15."""
 
 
-def _element_density(element: CSTElement2D | QuadElement2D) -> float:
+def _element_density(element: MassCapableElement) -> float:
     density = element.material.density
     if density is None:
         raise ValidationError(
@@ -47,37 +56,48 @@ def _element_density(element: CSTElement2D | QuadElement2D) -> float:
     return density
 
 
-def _consistent_mass_matrix(element: CSTElement2D | QuadElement2D) -> np.ndarray:
+def _consistent_mass_matrix(element: MassCapableElement) -> np.ndarray:
     density = _element_density(element)
     if isinstance(element, CSTElement2D):
         return triangle_consistent_mass_matrix(
             density=density, area=element.area, thickness=element.thickness
         )
+    if isinstance(element, QuadElement2D):
+        x_coords = tuple(node.x for node in element.nodes)
+        y_coords = tuple(node.y for node in element.nodes)
+        return quad_consistent_mass_matrix(
+            x_coords, y_coords, density=density, thickness=element.thickness
+        )
+    if isinstance(element, Tet4Element3D):
+        return tetrahedron_consistent_mass_matrix(density=density, volume=element.volume)
     x_coords = tuple(node.x for node in element.nodes)
     y_coords = tuple(node.y for node in element.nodes)
-    return quad_consistent_mass_matrix(
-        x_coords, y_coords, density=density, thickness=element.thickness
-    )
+    z_coords = tuple(node.z for node in element.nodes)
+    return hex8_consistent_mass_matrix(x_coords, y_coords, z_coords, density=density)
 
 
 def element_mass_matrix(
-    element: CSTElement2D | QuadElement2D, mass_matrix_type: MassMatrixType = "consistent"
+    element: MassCapableElement, mass_matrix_type: MassMatrixType = "consistent"
 ) -> np.ndarray:
     """Compute an element's mass matrix, consistent or lumped.
 
     Args:
         element: The continuum element to compute a mass matrix for
-            (:class:`~femtoolkit.mesh.cst_element.CSTElement2D` or
-            :class:`~femtoolkit.mesh.quad_element.QuadElement2D`).
+            (:class:`~femtoolkit.mesh.cst_element.CSTElement2D`,
+            :class:`~femtoolkit.mesh.quad_element.QuadElement2D`,
+            :class:`~femtoolkit.mesh.tet4_element.Tet4Element3D`, or
+            :class:`~femtoolkit.mesh.hex8_element.Hex8Element3D`).
         mass_matrix_type: ``"consistent"`` (default, see
             :func:`~femtoolkit.continuum.mass.triangle_consistent_mass_matrix`/
-            :func:`~femtoolkit.continuum.mass.quad_consistent_mass_matrix`)
+            :func:`~femtoolkit.continuum.mass.quad_consistent_mass_matrix`/
+            :func:`~femtoolkit.continuum.mass.tetrahedron_consistent_mass_matrix`/
+            :func:`~femtoolkit.continuum.mass.hex8_consistent_mass_matrix`)
             or ``"lumped"`` (see
             :func:`~femtoolkit.continuum.mass.lumped_mass_matrix`).
 
     Returns:
-        A square NumPy array (6x6 for CST, 8x8 for Q4), ordered to match
-        ``element.dof_keys()``.
+        A square NumPy array (6x6 for CST, 8x8 for Q4, 12x12 for TET4,
+        24x24 for HEX8), ordered to match ``element.dof_keys()``.
 
     Raises:
         ValidationError: If ``element``'s material has no density set,
@@ -93,11 +113,13 @@ def element_mass_matrix(
     )
 
 
-def element_total_mass(element: CSTElement2D | QuadElement2D) -> float:
-    """Return an element's total physical mass, ``rho * area * thickness``.
+def element_total_mass(element: MassCapableElement) -> float:
+    """Return an element's total physical mass.
 
-    Independent of ``mass_matrix_type`` -- both the consistent and
-    lumped mass matrices conserve this same total (see
+    ``rho * area * thickness`` for CST/Q4, or ``rho * volume`` for the
+    volume-based TET4/HEX8 solid elements. Independent of
+    ``mass_matrix_type`` -- both the consistent and lumped mass matrices
+    conserve this same total (see
     :func:`~femtoolkit.continuum.mass.lumped_mass_matrix`), so this is
     the reference value engineering validation compares either against.
 
@@ -110,4 +132,7 @@ def element_total_mass(element: CSTElement2D | QuadElement2D) -> float:
     Raises:
         ValidationError: If ``element``'s material has no density set.
     """
-    return _element_density(element) * element.area * element.thickness
+    density = _element_density(element)
+    if isinstance(element, _SOLID_ELEMENT_TYPES):
+        return density * element.volume
+    return density * element.area * element.thickness

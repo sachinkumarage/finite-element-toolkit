@@ -20,35 +20,58 @@ Every quantity here uses **engineering shear strain**
 :mod:`femtoolkit.continuum.strain` for why this matters.
 """
 
-from femtoolkit.continuum.constitutive import plane_strain_matrix, plane_stress_matrix
+from femtoolkit.continuum.constitutive import (
+    isotropic_3d_matrix,
+    plane_strain_matrix,
+    plane_stress_matrix,
+)
 from femtoolkit.continuum.edge import (
     GAUSS_1D_2POINT,
     edge_equivalent_nodal_force,
     edge_shape_functions,
 )
-from femtoolkit.continuum.gauss import GAUSS_2X2_POINTS, GaussPoint
+from femtoolkit.continuum.gauss import (
+    GAUSS_2X2_POINTS,
+    GAUSS_2X2X2_POINTS,
+    GaussPoint,
+    GaussPoint3D,
+)
 from femtoolkit.continuum.geometry import MIN_TRIANGLE_AREA, triangle_signed_area
 from femtoolkit.continuum.jacobian import (
     MIN_JACOBIAN_DETERMINANT,
+    MIN_JACOBIAN_DETERMINANT_3D,
     inverse_jacobian,
+    inverse_jacobian_3d,
     jacobian_determinant,
+    jacobian_determinant_3d,
     jacobian_matrix,
+    jacobian_matrix_3d,
     physical_shape_function_derivatives,
+    physical_shape_function_derivatives_3d,
 )
 from femtoolkit.continuum.mass import (
+    hex8_consistent_mass_matrix,
+    hex8_shape_function_matrix,
     lumped_mass_matrix,
     quad_consistent_mass_matrix,
     quad_shape_function_matrix,
+    tetrahedron_consistent_mass_matrix,
     triangle_consistent_mass_matrix,
 )
 from femtoolkit.continuum.shape_functions import (
+    hex8_shape_function_derivatives,
+    hex8_shape_functions,
     quad_shape_function_derivatives,
     quad_shape_functions,
+    tet4_shape_function_derivatives,
+    tet4_shape_functions,
     triangle_shape_functions,
 )
 from femtoolkit.continuum.strain import (
+    hex8_strain_displacement_matrix,
     quad_strain_displacement_matrix,
     strain_from_displacements,
+    tet4_strain_displacement_matrix,
     triangle_strain_displacement_matrix,
 )
 from femtoolkit.continuum.stress import (
@@ -58,23 +81,54 @@ from femtoolkit.continuum.stress import (
     von_mises_plane_strain,
     von_mises_plane_stress,
 )
+from femtoolkit.continuum.tensor import (
+    deviatoric_stress,
+    hydrostatic_stress,
+    j2_invariant,
+    mean_stress,
+    principal_stresses_3d,
+    tensor_to_voigt_strain,
+    tensor_to_voigt_stress,
+    trace,
+    voigt_strain_to_tensor,
+    voigt_stress_to_tensor,
+    von_mises_stress_from_tensor,
+)
 
 __all__ = [
     "GAUSS_1D_2POINT",
     "GAUSS_2X2_POINTS",
+    "GAUSS_2X2X2_POINTS",
     "MIN_JACOBIAN_DETERMINANT",
+    "MIN_JACOBIAN_DETERMINANT_3D",
     "MIN_TRIANGLE_AREA",
     "GaussPoint",
+    "GaussPoint3D",
+    "deviatoric_stress",
     "edge_equivalent_nodal_force",
     "edge_shape_functions",
+    "hex8_consistent_mass_matrix",
+    "hex8_shape_function_derivatives",
+    "hex8_shape_function_matrix",
+    "hex8_shape_functions",
+    "hex8_strain_displacement_matrix",
+    "hydrostatic_stress",
     "inverse_jacobian",
+    "inverse_jacobian_3d",
+    "isotropic_3d_matrix",
+    "j2_invariant",
     "jacobian_determinant",
+    "jacobian_determinant_3d",
     "jacobian_matrix",
+    "jacobian_matrix_3d",
     "lumped_mass_matrix",
+    "mean_stress",
     "physical_shape_function_derivatives",
+    "physical_shape_function_derivatives_3d",
     "plane_strain_matrix",
     "plane_stress_matrix",
     "principal_stresses_2d",
+    "principal_stresses_3d",
     "quad_consistent_mass_matrix",
     "quad_shape_function_derivatives",
     "quad_shape_function_matrix",
@@ -82,11 +136,21 @@ __all__ = [
     "quad_strain_displacement_matrix",
     "strain_from_displacements",
     "stress_from_strain",
+    "tensor_to_voigt_strain",
+    "tensor_to_voigt_stress",
+    "tet4_shape_function_derivatives",
+    "tet4_shape_functions",
+    "tet4_strain_displacement_matrix",
+    "tetrahedron_consistent_mass_matrix",
+    "trace",
     "triangle_consistent_mass_matrix",
     "triangle_shape_functions",
     "triangle_signed_area",
     "triangle_strain_displacement_matrix",
+    "voigt_strain_to_tensor",
+    "voigt_stress_to_tensor",
     "von_mises_3d",
     "von_mises_plane_strain",
     "von_mises_plane_stress",
+    "von_mises_stress_from_tensor",
 ]

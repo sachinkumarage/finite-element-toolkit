@@ -113,9 +113,8 @@ if TYPE_CHECKING:
     # Imported only for type checking, to avoid circular imports at
     # runtime -- see the same pattern in
     # femtoolkit.analysis.static_linear.
-    from femtoolkit.mesh.cst_element import CSTElement2D
+    from femtoolkit.analysis.nonlinear_elements import NonlinearCapableElement
     from femtoolkit.mesh.mesh import Mesh
-    from femtoolkit.mesh.quad_element import QuadElement2D
     from femtoolkit.results.nonlinear_result import LoadStepResult, NonlinearAnalysisResult
 
 
@@ -191,8 +190,10 @@ class NonlinearSolverSettings:
 class NonlinearAnalysis:
     """A Newton-Raphson nonlinear structural analysis over a mesh of continuum elements.
 
-    Supports :class:`~femtoolkit.mesh.cst_element.CSTElement2D` and
-    :class:`~femtoolkit.mesh.quad_element.QuadElement2D` elements (see
+    Supports :class:`~femtoolkit.mesh.cst_element.CSTElement2D`,
+    :class:`~femtoolkit.mesh.quad_element.QuadElement2D`,
+    :class:`~femtoolkit.mesh.tet4_element.Tet4Element3D`, and
+    :class:`~femtoolkit.mesh.hex8_element.Hex8Element3D` elements (see
     :mod:`femtoolkit.analysis.nonlinear_elements`), each driven by its
     own :class:`~femtoolkit.materials.nonlinear.NonlinearMaterial`
     supplied through the ``materials`` mapping -- independent of, and
@@ -258,7 +259,7 @@ class NonlinearAnalysis:
     def _assemble(
         self,
         dof_map: DOFMap,
-        elements: Sequence[CSTElement2D | QuadElement2D],
+        elements: Sequence[NonlinearCapableElement],
         displacements: np.ndarray,
         committed_states: dict[int, NonlinearElementState],
     ) -> tuple[np.ndarray, np.ndarray, dict[int, NonlinearElementState]]:
@@ -341,7 +342,8 @@ class NonlinearAnalysis:
         for element in elements:
             if not isinstance(element, NONLINEAR_CAPABLE_ELEMENT_TYPES):
                 raise InvalidElementError(
-                    "NonlinearAnalysis only supports CSTElement2D and QuadElement2D elements, "
+                    "NonlinearAnalysis only supports CSTElement2D, QuadElement2D, "
+                    "Tet4Element3D, and Hex8Element3D elements, "
                     f"got {type(element).__name__} (id={element.id})."
                 )
             if element.id not in self._materials:

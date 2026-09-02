@@ -6,7 +6,9 @@ from femtoolkit.materials.hardening import (
     DecoupledIsotropicHardeningAdapter2D,
     MultilinearIsotropicHardeningMaterial1D,
 )
+from femtoolkit.materials.j2_plasticity import J2Plasticity3D
 from femtoolkit.materials.linear_elastic_2d import LinearElastic2D
+from femtoolkit.materials.linear_elastic_3d import LinearElastic3D
 from femtoolkit.materials.material import Material
 from femtoolkit.materials.nonlinear import (
     ElasticMaterialAdapter,
@@ -21,7 +23,9 @@ __all__ = [
     "DecoupledIsotropicHardeningAdapter2D",
     "ElasticMaterialAdapter",
     "ElasticPerfectlyPlasticMaterial1D",
+    "J2Plasticity3D",
     "LinearElastic2D",
+    "LinearElastic3D",
     "Material",
     "MaterialState",
     "MultilinearIsotropicHardeningMaterial1D",

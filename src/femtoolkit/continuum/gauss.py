@@ -48,3 +48,37 @@ Each point uses the standard 2-point 1D Gauss-Legendre abscissa
 ``+/- 1/sqrt(3)``, whose exact 1D weight is ``1.0``; the 2D weight is the
 product of the two 1D weights, ``1.0 * 1.0 = 1.0``, for every point.
 """
+
+
+class GaussPoint3D(NamedTuple):
+    """A single 3D Gauss-Legendre integration point and its weight.
+
+    Attributes:
+        xi: First natural coordinate.
+        eta: Second natural coordinate.
+        zeta: Third natural coordinate.
+        weight: Integration weight (the product of the 1D weights along
+            each natural-coordinate direction).
+    """
+
+    xi: float
+    eta: float
+    zeta: float
+    weight: float
+
+
+GAUSS_2X2X2_POINTS: tuple[GaussPoint3D, ...] = tuple(
+    GaussPoint3D(
+        xi_sign * _ONE_OVER_SQRT_3, eta_sign * _ONE_OVER_SQRT_3, zeta_sign * _ONE_OVER_SQRT_3, 1.0
+    )
+    for zeta_sign in (-1.0, 1.0)
+    for eta_sign in (-1.0, 1.0)
+    for xi_sign in (-1.0, 1.0)
+)
+"""The eight points of the 2x2x2 Gauss-Legendre rule on ``[-1,1]^3`` (HEX8, Version 15).
+
+The 3D analogue of :data:`GAUSS_2X2_POINTS`: each point uses the same
+2-point 1D Gauss-Legendre abscissa ``+/- 1/sqrt(3)``, exact for the
+trilinear HEX8 geometric mapping; the 3D weight is the product of the
+three 1D weights, ``1.0 * 1.0 * 1.0 = 1.0``, for every point.
+"""

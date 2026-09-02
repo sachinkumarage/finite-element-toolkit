@@ -57,6 +57,20 @@ Version 14 is additive: two new, zero-defaulted :class:`MaterialState`
 fields (``hardening_variable`` for isotropic hardening's expanding yield
 surface, ``back_stress`` for kinematic hardening's translating one) that
 every Version 13 material silently ignores.
+
+Version 15 (:mod:`femtoolkit.materials.j2_plasticity`) adds one more
+zero-defaulted field the same way: ``plastic_multiplier`` (``Delta
+gamma``, the incremental plastic multiplier produced by *this*
+``trial_state`` call). Unlike ``hardening_variable``/``back_stress``
+(the accumulated, committed-and-carried-forward state), this is a
+per-call scalar, always ``0.0`` for an elastic step and for every
+material that does not set it. :class:`~femtoolkit.materials.j2_plasticity.J2Plasticity3D`
+uses it to reconstruct its own committed reference state (the plastic
+strain and hardening variable *before* this step's correction) inside
+``tangent_modulus`` -- which the interface deliberately does not pass
+``committed_state`` to -- so it can differentiate its own return map
+numerically without mutating any shared instance state (see that
+module's docstring for why this matters for Gauss-point independence).
 """
 
 from __future__ import annotations
@@ -72,6 +86,7 @@ from femtoolkit.exceptions import ValidationError
 
 if TYPE_CHECKING:
     from femtoolkit.materials.linear_elastic_2d import LinearElastic2D
+    from femtoolkit.materials.linear_elastic_3d import LinearElastic3D
     from femtoolkit.materials.material import Material
 
 _PLASTIC_TANGENT_RATIO = 1e-6
@@ -118,6 +133,18 @@ class MaterialState:
             expanded) yield surface
             (:class:`~femtoolkit.materials.hardening.BilinearKinematicHardeningMaterial1D`).
             Zero for materials with no kinematic hardening (the default).
+        plastic_multiplier: The incremental plastic multiplier
+            (``Delta gamma``) produced by the ``trial_state`` call that
+            returned this state -- always a plain scalar (unlike
+            ``hardening_variable``, which may be a per-component array
+            for a decoupled multi-component material), since a single
+            integration point has one consistency parameter regardless
+            of how many strain components it carries. Zero for an
+            elastic step and for every material that does not set it
+            (the default, so every prior material is unaffected by this
+            field's addition). See
+            :class:`~femtoolkit.materials.j2_plasticity.J2Plasticity3D`
+            for the one material that uses it.
     """
 
     strain: float | np.ndarray
@@ -126,6 +153,7 @@ class MaterialState:
     yielded: bool | np.ndarray
     hardening_variable: float | np.ndarray = 0.0
     back_stress: float | np.ndarray = 0.0
+    plastic_multiplier: float = 0.0
 
     @property
     def elastic_strain(self) -> float | np.ndarray:
@@ -228,17 +256,19 @@ class ElasticMaterialAdapter(NonlinearMaterial):
     material exists for (see the module docstring).
 
     Attributes:
-        modulus: Young's modulus ``E`` (a positive scalar, for 1D use)
-            or a constitutive matrix ``D`` (a 3x3 NumPy array, for 2D
-            continuum use).
+        modulus: Young's modulus ``E`` (a positive scalar, for 1D use),
+            a constitutive matrix ``D`` (a 3x3 NumPy array, for 2D
+            continuum use), or a 6x6 NumPy array (for 3D solid use,
+            Version 15 -- see :meth:`from_linear_elastic_3d`).
 
     Raises:
         ValidationError: If ``modulus`` is a scalar that is not positive
-            and finite, or an array that is not 3x3.
+            and finite, or an array that is not 3x3 or 6x6.
 
     Example:
         >>> adapter = ElasticMaterialAdapter.from_material(steel)
         >>> adapter_2d = ElasticMaterialAdapter.from_linear_elastic_2d(plane_stress_steel)
+        >>> adapter_3d = ElasticMaterialAdapter.from_linear_elastic_3d(steel_3d)
     """
 
     modulus: float | np.ndarray
@@ -248,7 +278,7 @@ class ElasticMaterialAdapter(NonlinearMaterial):
 
         Raises:
             ValidationError: If ``modulus`` is a scalar that is not
-                positive and finite, or an array that is not 3x3.
+                positive and finite, or an array that is not 3x3 or 6x6.
         """
         if np.isscalar(self.modulus):
             if not math.isfinite(self.modulus) or self.modulus <= 0:
@@ -257,10 +287,10 @@ class ElasticMaterialAdapter(NonlinearMaterial):
                 )
         else:
             modulus_array = np.asarray(self.modulus)
-            if modulus_array.shape != (3, 3):
+            if modulus_array.shape not in ((3, 3), (6, 6)):
                 raise ValidationError(
-                    "ElasticMaterialAdapter modulus array must have shape (3, 3), got "
-                    f"{modulus_array.shape}."
+                    "ElasticMaterialAdapter modulus array must have shape (3, 3) or (6, 6), "
+                    f"got {modulus_array.shape}."
                 )
 
     @classmethod
@@ -285,13 +315,35 @@ class ElasticMaterialAdapter(NonlinearMaterial):
                 ``constitutive_matrix`` is used).
 
         Returns:
-            A matrix-modulus :class:`ElasticMaterialAdapter`.
+            A 3x3-matrix-modulus :class:`ElasticMaterialAdapter`.
+        """
+        return cls(modulus=material.constitutive_matrix)
+
+    @classmethod
+    def from_linear_elastic_3d(cls, material: LinearElastic3D) -> ElasticMaterialAdapter:
+        """Build an adapter from an existing 3D linear-elastic material (Version 15).
+
+        Exists for exactly the reason :meth:`from_linear_elastic_2d` does:
+        validating that solving a linear 3D (TET4/HEX8) problem through
+        the nonlinear Newton-Raphson machinery converges in one iteration
+        per load step and reproduces
+        :class:`~femtoolkit.analysis.static_linear.StaticLinearAnalysis`'s
+        displacement exactly, before genuine 3D plasticity
+        (:class:`~femtoolkit.materials.j2_plasticity.J2Plasticity3D`) is
+        introduced.
+
+        Args:
+            material: The linear material to wrap (its
+                ``constitutive_matrix`` is used).
+
+        Returns:
+            A 6x6-matrix-modulus :class:`ElasticMaterialAdapter`.
         """
         return cls(modulus=material.constitutive_matrix)
 
     def initial_state(self) -> MaterialState:
         """Return the zero-strain state, shaped to match ``modulus``."""
-        like = 0.0 if np.isscalar(self.modulus) else np.zeros(3)
+        like = 0.0 if np.isscalar(self.modulus) else np.zeros(np.asarray(self.modulus).shape[0])
         return MaterialState.zero(like)
 
     def trial_state(
@@ -303,7 +355,7 @@ class ElasticMaterialAdapter(NonlinearMaterial):
             plastic_strain = 0.0
         else:
             stress = self.modulus @ np.asarray(strain, dtype=float)
-            plastic_strain = np.zeros(3)
+            plastic_strain = np.zeros(np.asarray(self.modulus).shape[0])
         return MaterialState(
             strain=strain, stress=stress, plastic_strain=plastic_strain, yielded=False
         )

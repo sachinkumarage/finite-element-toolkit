@@ -17,13 +17,23 @@ reusable continuum math in :mod:`femtoolkit.continuum`.
 from __future__ import annotations
 
 import math
+from collections.abc import Sequence
 
 import numpy as np
 
-from femtoolkit.continuum.gauss import GAUSS_2X2_POINTS
-from femtoolkit.continuum.jacobian import physical_shape_function_derivatives
-from femtoolkit.continuum.shape_functions import quad_shape_function_derivatives
-from femtoolkit.continuum.strain import quad_strain_displacement_matrix
+from femtoolkit.continuum.gauss import GAUSS_2X2_POINTS, GAUSS_2X2X2_POINTS
+from femtoolkit.continuum.jacobian import (
+    physical_shape_function_derivatives,
+    physical_shape_function_derivatives_3d,
+)
+from femtoolkit.continuum.shape_functions import (
+    hex8_shape_function_derivatives,
+    quad_shape_function_derivatives,
+)
+from femtoolkit.continuum.strain import (
+    hex8_strain_displacement_matrix,
+    quad_strain_displacement_matrix,
+)
 from femtoolkit.exceptions import ValidationError
 
 
@@ -362,5 +372,93 @@ def quad_element_stiffness(
         )
         b_matrix = quad_strain_displacement_matrix(dn_dx, dn_dy)
         stiffness += point.weight * thickness * (b_matrix.T @ d_matrix @ b_matrix) * det_j
+
+    return stiffness
+
+
+def tet4_element_stiffness(volume: float, b_matrix: np.ndarray, d_matrix: np.ndarray) -> np.ndarray:
+    """Compute the stiffness matrix of a 4-node linear tetrahedron (TET4, Version 15).
+
+    .. code-block:: text
+
+        Ke = B^T * D * B * V
+
+    The 3D analogue of :func:`cst_element_stiffness`: ``B`` is constant
+    over a TET4 element (see
+    :func:`~femtoolkit.continuum.strain.tet4_strain_displacement_matrix`),
+    so -- like CST -- the stiffness integral collapses to a single
+    closed-form multiplication by volume, with no Gauss quadrature
+    needed. Unlike CST, there is no ``thickness`` factor: a TET4 element
+    already represents a genuine 3D volume.
+
+    Args:
+        volume: Element's physical (always positive) volume, in cubic
+            meters. Must be positive.
+        b_matrix: The element's 6x12 strain-displacement matrix.
+        d_matrix: The material's 6x6 constitutive matrix.
+
+    Returns:
+        A 12x12 NumPy array, the symmetric TET4 element stiffness matrix.
+
+    Raises:
+        ValidationError: If ``volume`` is not a positive, finite number.
+    """
+    _validate_positive_finite(volume=volume)
+
+    return volume * b_matrix.T @ d_matrix @ b_matrix
+
+
+def hex8_element_stiffness(
+    x_coords: Sequence[float],
+    y_coords: Sequence[float],
+    z_coords: Sequence[float],
+    d_matrix: np.ndarray,
+) -> np.ndarray:
+    """Compute the stiffness matrix of an 8-node trilinear hexahedron (HEX8, Version 15).
+
+    Like the 2D Q4 element, HEX8's trilinear shape functions give a
+    strain-displacement matrix ``B`` that varies within the element, so
+    the stiffness integral has no closed form and is instead evaluated
+    with 2x2x2 Gauss quadrature (see :mod:`femtoolkit.continuum.gauss`),
+    the 3D analogue of :func:`quad_element_stiffness`:
+
+    .. code-block:: text
+
+        Ke = sum over the 8 Gauss points of:
+             weight * B(xi,eta,zeta)^T * D * B(xi,eta,zeta) * det(J(xi,eta,zeta))
+
+    Args:
+        x_coords: The element's eight node X coordinates, in meters,
+            ordered per the isoparametric convention (see
+            :func:`~femtoolkit.continuum.shape_functions.hex8_shape_functions`).
+        y_coords: The element's eight node Y coordinates, in meters.
+        z_coords: The element's eight node Z coordinates, in meters.
+        d_matrix: The material's 6x6 constitutive matrix.
+
+    Returns:
+        A 24x24 NumPy array, the symmetric HEX8 element stiffness matrix.
+
+    Raises:
+        DegenerateElementError: If the Jacobian determinant is not
+            positive at any of the eight Gauss points (degenerate,
+            self-intersecting, or inverted node order).
+
+    Example:
+        >>> from femtoolkit.continuum import isotropic_3d_matrix
+        >>> d = isotropic_3d_matrix(youngs_modulus=200e9, poisson_ratio=0.3)
+        >>> x = [-1, 1, 1, -1, -1, 1, 1, -1]
+        >>> y = [-1, -1, 1, 1, -1, -1, 1, 1]
+        >>> z = [-1, -1, -1, -1, 1, 1, 1, 1]
+        >>> hex8_element_stiffness(x, y, z, d).shape
+        (24, 24)
+    """
+    stiffness = np.zeros((24, 24))
+    for point in GAUSS_2X2X2_POINTS:
+        dn_dxi, dn_deta, dn_dzeta = hex8_shape_function_derivatives(point.xi, point.eta, point.zeta)
+        dn_dx, dn_dy, dn_dz, det_j = physical_shape_function_derivatives_3d(
+            dn_dxi, dn_deta, dn_dzeta, x_coords, y_coords, z_coords
+        )
+        b_matrix = hex8_strain_displacement_matrix(dn_dx, dn_dy, dn_dz)
+        stiffness += point.weight * (b_matrix.T @ d_matrix @ b_matrix) * det_j
 
     return stiffness

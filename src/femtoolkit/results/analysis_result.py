@@ -252,6 +252,32 @@ class AnalysisResult:
         element = self._get_continuum_element(element_id)
         return element.principal_stresses_from_dofs(self._element_dof_values(element))
 
+    def element_hydrostatic_stress(self, element_id: int) -> float:
+        """Return the mean (hydrostatic) normal stress of a 3D solid element.
+
+        Args:
+            element_id: ID of the TET4/HEX8 element to query.
+
+        Returns:
+            The mean stress ``sigma_m = tr(sigma) / 3``, in pascals.
+
+        Raises:
+            EntityNotFoundError: If ``element_id`` was not part of the analysis.
+            InvalidElementError: If the element does not report
+                hydrostatic stress (only
+                :class:`~femtoolkit.mesh.tet4_element.Tet4Element3D` and
+                :class:`~femtoolkit.mesh.hex8_element.Hex8Element3D` do,
+                Version 15).
+        """
+        element = self._get_element(element_id)
+        hydrostatic_stress_from_dofs = getattr(element, "hydrostatic_stress_from_dofs", None)
+        if hydrostatic_stress_from_dofs is None:
+            raise InvalidElementError(
+                f"Element {element_id} ({type(element).__name__}) does not report "
+                "hydrostatic stress; only 3D solid elements (TET4, HEX8) do."
+            )
+        return hydrostatic_stress_from_dofs(self._element_dof_values(element))
+
     def element_end_forces(self, element_id: int):
         """Return the axial force, shear force, and bending moment at both ends of a frame element.
 

@@ -165,3 +165,171 @@ def quad_shape_function_derivatives(
         (1.0 - xi) / 4.0,
     )
     return dn_dxi, dn_deta
+
+
+def tet4_shape_functions(
+    xi: float, eta: float, zeta: float
+) -> tuple[float, float, float, float]:
+    """Evaluate the four linear shape functions of a 4-node tetrahedron (TET4, Version 15).
+
+    .. code-block:: text
+
+        N1(xi, eta, zeta) = 1 - xi - eta - zeta
+        N2(xi, eta, zeta) = xi
+        N3(xi, eta, zeta) = eta
+        N4(xi, eta, zeta) = zeta
+
+    Node 1 sits at the natural-coordinate origin ``(0, 0, 0)``; nodes 2,
+    3, 4 sit at ``(1, 0, 0)``, ``(0, 1, 0)``, ``(0, 0, 1)`` respectively.
+    Each ``Ni`` is linear in the natural coordinates, so (like
+    :func:`triangle_shape_functions`, its 2D analogue) its gradient is
+    constant over the element -- the origin of TET4's constant-strain
+    property (see :mod:`femtoolkit.continuum.strain`).
+
+    Args:
+        xi: First natural coordinate.
+        eta: Second natural coordinate.
+        zeta: Third natural coordinate.
+
+    Returns:
+        ``(N1, N2, N3, N4)`` evaluated at ``(xi, eta, zeta)``.
+
+    Example:
+        >>> tet4_shape_functions(0.0, 0.0, 0.0)
+        (1.0, 0.0, 0.0, 0.0)
+    """
+    return 1.0 - xi - eta - zeta, xi, eta, zeta
+
+
+_Tet4DerivativeRow = tuple[float, float, float, float]
+_Tet4DerivativeRows = tuple[_Tet4DerivativeRow, _Tet4DerivativeRow, _Tet4DerivativeRow]
+
+
+def tet4_shape_function_derivatives() -> _Tet4DerivativeRows:
+    """Return the four TET4 shape functions' constant natural-coordinate derivatives.
+
+    Because each shape function is linear (see :func:`tet4_shape_functions`),
+    every derivative is a constant, independent of ``(xi, eta, zeta)`` --
+    unlike :func:`quad_shape_function_derivatives`, this function takes no
+    arguments.
+
+    Returns:
+        ``((dN1/dxi, dN2/dxi, dN3/dxi, dN4/dxi),
+        (dN1/deta, dN2/deta, dN3/deta, dN4/deta),
+        (dN1/dzeta, dN2/dzeta, dN3/dzeta, dN4/dzeta))``.
+    """
+    dn_dxi = (-1.0, 1.0, 0.0, 0.0)
+    dn_deta = (-1.0, 0.0, 1.0, 0.0)
+    dn_dzeta = (-1.0, 0.0, 0.0, 1.0)
+    return dn_dxi, dn_deta, dn_dzeta
+
+
+_HEX8_NATURAL_COORDS: tuple[tuple[float, float, float], ...] = (
+    (-1.0, -1.0, -1.0),
+    (1.0, -1.0, -1.0),
+    (1.0, 1.0, -1.0),
+    (-1.0, 1.0, -1.0),
+    (-1.0, -1.0, 1.0),
+    (1.0, -1.0, 1.0),
+    (1.0, 1.0, 1.0),
+    (-1.0, 1.0, 1.0),
+)
+"""Natural-coordinate corners of the 8-node hexahedron (HEX8, Version 15).
+
+.. code-block:: text
+
+    Bottom face (zeta = -1), counter-clockwise from (x, y) = (-1, -1):
+        Node 1: (-1, -1, -1)      Node 4 ------- Node 3
+        Node 2: ( 1, -1, -1)        |               |
+        Node 3: ( 1,  1, -1)        |               |
+        Node 4: (-1,  1, -1)      Node 1 ------- Node 2
+
+    Top face (zeta = +1), directly above the bottom face, same winding:
+        Node 5: (-1, -1,  1)      Node 8 ------- Node 7
+        Node 6: ( 1, -1,  1)        |               |
+        Node 7: ( 1,  1,  1)        |               |
+        Node 8: (-1,  1,  1)      Node 5 ------- Node 6
+
+This is the standard isoparametric hexahedron node ordering used by most
+commercial FEA codes (e.g. Abaqus C3D8, ANSYS SOLID185).
+"""
+
+
+def hex8_shape_functions(
+    xi: float, eta: float, zeta: float
+) -> tuple[float, float, float, float, float, float, float, float]:
+    """Evaluate the eight trilinear shape functions of an 8-node hexahedron (HEX8, Version 15).
+
+    .. code-block:: text
+
+        Ni(xi, eta, zeta) = (1 + xi*xi_i)(1 + eta*eta_i)(1 + zeta*zeta_i) / 8
+
+    where ``(xi_i, eta_i, zeta_i)`` is node ``i``'s natural-coordinate
+    corner (see :data:`_HEX8_NATURAL_COORDS`). Each ``Ni`` is *trilinear*
+    (linear in each natural coordinate separately, with ``xi*eta``,
+    ``eta*zeta``, ``xi*zeta``, and ``xi*eta*zeta`` cross terms), so its
+    gradient is **not** constant over the element -- a HEX8 element's
+    strain varies within the element, unlike TET4's (see
+    :func:`tet4_shape_functions`).
+
+    Args:
+        xi: First natural coordinate, expected in ``[-1, 1]``.
+        eta: Second natural coordinate, expected in ``[-1, 1]``.
+        zeta: Third natural coordinate, expected in ``[-1, 1]``.
+
+    Returns:
+        ``(N1, N2, ..., N8)`` evaluated at ``(xi, eta, zeta)``.
+
+    Example:
+        >>> hex8_shape_functions(0.0, 0.0, 0.0)
+        (0.125, 0.125, 0.125, 0.125, 0.125, 0.125, 0.125, 0.125)
+    """
+    return tuple(
+        (1.0 + xi * xi_i) * (1.0 + eta * eta_i) * (1.0 + zeta * zeta_i) / 8.0
+        for xi_i, eta_i, zeta_i in _HEX8_NATURAL_COORDS
+    )
+
+
+def hex8_shape_function_derivatives(
+    xi: float, eta: float, zeta: float
+) -> tuple[
+    tuple[float, ...],
+    tuple[float, ...],
+    tuple[float, ...],
+]:
+    """Evaluate the natural-coordinate derivatives of the eight HEX8 shape functions.
+
+    .. code-block:: text
+
+        dNi/dxi   = xi_i   * (1 + eta*eta_i)  * (1 + zeta*zeta_i) / 8
+        dNi/deta  = eta_i  * (1 + xi*xi_i)    * (1 + zeta*zeta_i) / 8
+        dNi/dzeta = zeta_i * (1 + xi*xi_i)    * (1 + eta*eta_i)   / 8
+
+    These are the inputs to the 3D isoparametric Jacobian (see
+    :func:`~femtoolkit.continuum.jacobian.jacobian_matrix_3d`); like the
+    Q4 case, they are *not* yet the physical-coordinate derivatives
+    ``dNi/dx``, ``dNi/dy``, ``dNi/dz`` the strain-displacement matrix
+    needs.
+
+    Args:
+        xi: First natural coordinate, expected in ``[-1, 1]``.
+        eta: Second natural coordinate, expected in ``[-1, 1]``.
+        zeta: Third natural coordinate, expected in ``[-1, 1]``.
+
+    Returns:
+        ``((dN1/dxi, ..., dN8/dxi), (dN1/deta, ..., dN8/deta),
+        (dN1/dzeta, ..., dN8/dzeta))``.
+    """
+    dn_dxi = tuple(
+        xi_i * (1.0 + eta * eta_i) * (1.0 + zeta * zeta_i) / 8.0
+        for xi_i, eta_i, zeta_i in _HEX8_NATURAL_COORDS
+    )
+    dn_deta = tuple(
+        eta_i * (1.0 + xi * xi_i) * (1.0 + zeta * zeta_i) / 8.0
+        for xi_i, eta_i, zeta_i in _HEX8_NATURAL_COORDS
+    )
+    dn_dzeta = tuple(
+        zeta_i * (1.0 + xi * xi_i) * (1.0 + eta * eta_i) / 8.0
+        for xi_i, eta_i, zeta_i in _HEX8_NATURAL_COORDS
+    )
+    return dn_dxi, dn_deta, dn_dzeta
