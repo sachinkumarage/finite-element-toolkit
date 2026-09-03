@@ -67,6 +67,23 @@ loads (:class:`~femtoolkit.analysis.loads.NodalLoad`,
 free/constrained stiffness partition idea from
 :func:`~femtoolkit.analysis.system.solve` -- only the assembled matrix
 changes every iteration here, not the partition strategy.
+
+**Geometric nonlinearity (Version 16).** Everything above -- the residual,
+the Newton-Raphson iteration, load stepping, trial/committed state --
+already works unchanged for *geometric* nonlinearity too: "update
+configuration" (a large-displacement analysis's extra conceptual step)
+turns out to be nothing more than what already happens every iteration,
+since element-level dispatch functions always recompute their response
+from the *current trial displacement* rather than caching anything from a
+previous iteration. The only thing that differs is *which* element-level
+dispatch module computes the internal force and tangent from that trial
+displacement: :class:`NonlinearAnalysis`'s ``geometric_nonlinearity``
+constructor flag selects between the small-strain dispatch
+(:mod:`femtoolkit.analysis.nonlinear_elements`, the default, unchanged
+from Version 13-15) and the Total Lagrangian large-displacement dispatch
+(:mod:`femtoolkit.analysis.geometric_nonlinear`, new). See that module's
+docstring for the deformation-gradient/Green-Lagrange-strain kinematics
+and the material/geometric tangent-stiffness split this enables.
 """
 
 from __future__ import annotations
@@ -78,6 +95,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from femtoolkit.analysis import geometric_nonlinear
 from femtoolkit.analysis.assembly import (
     ElementForceContribution,
     ElementStiffnessContribution,
@@ -199,6 +217,21 @@ class NonlinearAnalysis:
     supplied through the ``materials`` mapping -- independent of, and
     never reading, the element's own linear ``material`` attribute.
 
+    **Geometric nonlinearity (Version 16).** Passing
+    ``geometric_nonlinearity=True`` switches every element/material lookup
+    in this class to the *independent* dispatch module
+    :mod:`femtoolkit.analysis.geometric_nonlinear` instead, which supports
+    :class:`~femtoolkit.mesh.truss_element.TrussElement2D`,
+    :class:`~femtoolkit.mesh.tet4_element.Tet4Element3D`, and
+    :class:`~femtoolkit.mesh.hex8_element.Hex8Element3D` under a Total
+    Lagrangian, large-displacement formulation (deformation gradient,
+    Green-Lagrange strain, second Piola-Kirchhoff stress -- see that
+    module's docstring). The Newton-Raphson math below (``R = F_ext -
+    F_int``, ``K_t @ du = R``, load stepping, convergence) is completely
+    unchanged either way -- only *which* element-level internal-force/
+    tangent functions are called differs. The default (``False``)
+    preserves every Version 13-15 analysis exactly.
+
     Example:
         >>> materials = {
         ...     element.id: ElasticPerfectlyPlasticMaterial1D(2e11, 2.5e8)
@@ -215,12 +248,14 @@ class NonlinearAnalysis:
         mesh: Mesh,
         materials: Mapping[int, NonlinearMaterial],
         settings: NonlinearSolverSettings | None = None,
+        geometric_nonlinearity: bool = False,
     ) -> None:
         """Create a nonlinear analysis for the given mesh.
 
         Args:
             mesh: The mesh to analyze. Its elements must all be
-                CST or Q4 continuum elements and share the same
+                CST/Q4/TET4/HEX8 (or, if ``geometric_nonlinearity=True``,
+                truss/TET4/HEX8) continuum elements and share the same
                 ``dofs_per_node``; this is checked when :meth:`solve` is
                 called.
             materials: Maps each element's ``id`` to the
@@ -229,12 +264,49 @@ class NonlinearAnalysis:
                 must have a matching entry.
             settings: Newton-Raphson solver configuration. Defaults to
                 :class:`NonlinearSolverSettings`'s defaults.
+            geometric_nonlinearity: If ``True``, use the Total Lagrangian
+                large-displacement dispatch
+                (:mod:`femtoolkit.analysis.geometric_nonlinear`) instead
+                of the small-strain dispatch
+                (:mod:`femtoolkit.analysis.nonlinear_elements`). Defaults
+                to ``False``, preserving every Version 13-15 analysis
+                exactly.
         """
         self._mesh = mesh
         self._materials = dict(materials)
         self._settings = settings if settings is not None else NonlinearSolverSettings()
+        self._geometric_nonlinearity = geometric_nonlinearity
         self._loads: list[NodalLoad] = []
         self._boundary_conditions: list[BoundaryCondition] = []
+
+    @property
+    def _capable_element_types(self) -> tuple[type, ...]:
+        """The element types this analysis can drive, given its dispatch mode."""
+        if self._geometric_nonlinearity:
+            return geometric_nonlinear.GEOMETRIC_NONLINEAR_CAPABLE_ELEMENT_TYPES
+        return NONLINEAR_CAPABLE_ELEMENT_TYPES
+
+    def _initial_element_state(
+        self, element: NonlinearCapableElement, material: NonlinearMaterial
+    ) -> NonlinearElementState:
+        """Dispatch to the small-strain or geometric ``initial_element_state``."""
+        if self._geometric_nonlinearity:
+            return geometric_nonlinear.initial_element_state(element, material)
+        return initial_element_state(element, material)
+
+    def _element_internal_force_and_tangent(
+        self,
+        element: NonlinearCapableElement,
+        material: NonlinearMaterial,
+        displacements: np.ndarray,
+        committed_state: NonlinearElementState,
+    ) -> tuple[np.ndarray, np.ndarray, NonlinearElementState]:
+        """Dispatch to the small-strain or geometric internal-force/tangent function."""
+        if self._geometric_nonlinearity:
+            return geometric_nonlinear.element_internal_force_and_tangent(
+                element, material, displacements, committed_state
+            )
+        return element_internal_force_and_tangent(element, material, displacements, committed_state)
 
     def add_load(self, load: NodalLoad) -> None:
         """Add a nodal load (applied at full load factor 1.0) to the analysis.
@@ -286,7 +358,7 @@ class NonlinearAnalysis:
             local_indices = [dof_map.global_index(node_id, dof) for node_id, dof in dof_keys]
             local_displacements = displacements[local_indices]
 
-            f_int_local, k_t_local, trial_state = element_internal_force_and_tangent(
+            f_int_local, k_t_local, trial_state = self._element_internal_force_and_tangent(
                 element,
                 self._materials[element.id],
                 local_displacements,
@@ -339,11 +411,13 @@ class NonlinearAnalysis:
                 "Cannot solve a nonlinear analysis whose mesh has no elements."
             )
 
+        capable_element_types = self._capable_element_types
         for element in elements:
-            if not isinstance(element, NONLINEAR_CAPABLE_ELEMENT_TYPES):
+            if not isinstance(element, capable_element_types):
+                capable_names = ", ".join(t.__name__ for t in capable_element_types)
                 raise InvalidElementError(
-                    "NonlinearAnalysis only supports CSTElement2D, QuadElement2D, "
-                    "Tet4Element3D, and Hex8Element3D elements, "
+                    f"NonlinearAnalysis (geometric_nonlinearity={self._geometric_nonlinearity}) "
+                    f"only supports {capable_names} elements, "
                     f"got {type(element).__name__} (id={element.id})."
                 )
             if element.id not in self._materials:
@@ -388,7 +462,7 @@ class NonlinearAnalysis:
 
         u_committed = np.zeros(total_dofs)
         committed_states: dict[int, NonlinearElementState] = {
-            element.id: initial_element_state(element, self._materials[element.id])
+            element.id: self._initial_element_state(element, self._materials[element.id])
             for element in elements
         }
 

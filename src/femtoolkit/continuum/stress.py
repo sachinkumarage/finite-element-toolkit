@@ -1,9 +1,39 @@
-"""Stress recovery for 2D continuum elements.
+"""Stress recovery for 2D continuum elements, and finite-strain stress-measure conversions.
 
 Given the constant strain field of a CST element (see
 :mod:`femtoolkit.continuum.strain`) and its constitutive matrix (see
 :mod:`femtoolkit.continuum.constitutive`), this module computes stress,
 von Mises equivalent stress, and in-plane principal stresses.
+
+**Stress measures (Version 16).** A finite-strain (Total Lagrangian)
+analysis (:mod:`femtoolkit.analysis.geometric_nonlinear`) works entirely in
+the reference configuration with the **second Piola-Kirchhoff stress**
+``S`` -- the energy-conjugate partner of Green-Lagrange strain ``E`` (see
+:mod:`femtoolkit.continuum.deformation`), symmetric, and expressed purely
+in reference-configuration quantities, which is exactly what makes it
+convenient for a reference-configuration formulation. It is not, however,
+a physically direct force-per-area like the stress an engineer usually
+means:
+
+* **Cauchy stress** ``sigma`` -- the "true" stress: current force per unit
+  *current* area. Symmetric. The physically meaningful stress for
+  reporting, but awkward to use as the primary unknown in a
+  reference-configuration formulation since the current area it is defined
+  over is itself part of the unknown solution.
+* **First Piola-Kirchhoff stress** ``P`` -- current force per unit
+  *reference* area. A "two-point" tensor (relates a reference-area normal
+  to a current-configuration force) and, in general, **not symmetric**.
+  Sits between the other two: ``P = F @ S``.
+* **Second Piola-Kirchhoff stress** ``S`` -- a fictitious force, *pulled
+  back* through ``F`` to act on a reference-area normal and produce a
+  reference-configuration force. Symmetric, purely reference-configuration,
+  and the natural stress measure for a Total Lagrangian formulation.
+
+:func:`first_piola_kirchhoff_from_second` and
+:func:`cauchy_stress_from_second_piola_kirchhoff` convert ``S`` to the other
+two -- used only for *reporting* (an example or test recovering a physically
+intuitive stress), never by the Total Lagrangian formulation itself, which
+needs only ``S``.
 """
 
 from __future__ import annotations
@@ -148,3 +178,45 @@ def principal_stresses_2d(sigma_x: float, sigma_y: float, tau_xy: float) -> tupl
     average = (sigma_x + sigma_y) / 2.0
     radius = math.sqrt(((sigma_x - sigma_y) / 2.0) ** 2 + tau_xy**2)
     return average + radius, average - radius
+
+
+def first_piola_kirchhoff_from_second(
+    deformation_gradient_tensor: np.ndarray, second_piola_kirchhoff_stress: np.ndarray
+) -> np.ndarray:
+    """Convert second Piola-Kirchhoff stress to first Piola-Kirchhoff stress, ``P = F @ S``.
+
+    Args:
+        deformation_gradient_tensor: The 3x3 deformation gradient ``F``.
+        second_piola_kirchhoff_stress: The symmetric 3x3 second
+            Piola-Kirchhoff stress tensor ``S``.
+
+    Returns:
+        A (generally non-symmetric) 3x3 NumPy array, the first
+        Piola-Kirchhoff stress ``P``.
+    """
+    return deformation_gradient_tensor @ second_piola_kirchhoff_stress
+
+
+def cauchy_stress_from_second_piola_kirchhoff(
+    deformation_gradient_tensor: np.ndarray, second_piola_kirchhoff_stress: np.ndarray
+) -> np.ndarray:
+    """Convert second Piola-Kirchhoff stress to Cauchy (true) stress.
+
+    .. code-block:: text
+
+        sigma = (1 / det(F)) * F @ S @ F^T
+
+    Args:
+        deformation_gradient_tensor: The 3x3 deformation gradient ``F``.
+        second_piola_kirchhoff_stress: The symmetric 3x3 second
+            Piola-Kirchhoff stress tensor ``S``.
+
+    Returns:
+        A symmetric 3x3 NumPy array, the Cauchy stress ``sigma``.
+    """
+    jacobian = float(np.linalg.det(deformation_gradient_tensor))
+    return (
+        deformation_gradient_tensor
+        @ second_piola_kirchhoff_stress
+        @ deformation_gradient_tensor.T
+    ) / jacobian

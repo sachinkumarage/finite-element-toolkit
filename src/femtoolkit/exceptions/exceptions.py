@@ -174,6 +174,21 @@ class ConstitutiveUpdateError(FiniteElementToolkitError):
     """
 
 
+class InvalidDeformationGradientError(ValidationError):
+    """Raised when a deformation gradient is invalid for finite-strain (Version 16) use.
+
+    Covers a non-finite entry (typically the downstream symptom of a
+    diverging Newton-Raphson iteration, the same failure mode
+    :class:`ConstitutiveUpdateError` catches for small-strain materials)
+    and a non-positive determinant -- physically, an element that has
+    inverted or collapsed to zero volume under excessive deformation, which
+    the Total Lagrangian formulation
+    (:mod:`femtoolkit.analysis.geometric_nonlinear`) is not valid for. A
+    :class:`ValidationError` specialization, mirroring
+    :class:`DegenerateElementError`'s relationship to it.
+    """
+
+
 class UnsupportedLoadingPathError(FiniteElementToolkitError):
     """Raised when a material model is driven along a loading path it does not support.
 

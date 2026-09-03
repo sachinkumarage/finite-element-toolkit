@@ -1,5 +1,6 @@
 """Material property data models for the Finite Element Toolkit."""
 
+from femtoolkit.materials.finite_strain import SaintVenantKirchhoff1D, SaintVenantKirchhoff3D
 from femtoolkit.materials.hardening import (
     BilinearIsotropicHardeningMaterial1D,
     BilinearKinematicHardeningMaterial1D,
@@ -30,4 +31,6 @@ __all__ = [
     "MaterialState",
     "MultilinearIsotropicHardeningMaterial1D",
     "NonlinearMaterial",
+    "SaintVenantKirchhoff1D",
+    "SaintVenantKirchhoff3D",
 ]

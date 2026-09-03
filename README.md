@@ -2,7 +2,7 @@
 
 An open-source Python toolkit for developing finite element analysis (FEA) capabilities, built incrementally as a series of versioned milestones.
 
-**This is the Version 15 release.** Version 1 established the project's architecture and core domain model. Version 2 added the basic mathematical foundation for FEA. Version 3 turned that into a validated **1D structural analysis** capability (a bar element, `StaticLinearAnalysis`, and results). Version 4 extended the same analysis workflow to **2D truss structures**: two translational DOFs per node, a `TrussElement2D` transformed from local to global coordinates via its direction cosines, and X/Y loads, constraints, displacements, reactions, and member forces. Version 5 added **2D Euler-Bernoulli beam and frame analysis**: a rotational DOF per node, a `FrameElement2D` that resists axial force, shear force, and bending moment, and per-element shear/moment/bending-stress results. Version 6 introduced the toolkit's first true **2D continuum element**: a `CSTElement2D` (3-node constant strain triangle) representing a finite *area* of material rather than a line member, with plane stress/strain constitutive models, a strain-displacement (`B`) matrix, and von Mises/principal stress recovery. Version 7 added a second continuum element, `QuadElement2D` (4-node bilinear quadrilateral, "Q4"): natural coordinates, isoparametric mapping, the Jacobian, and 2x2 Gauss quadrature, needed because -- unlike the CST element -- a Q4 element's strain-displacement matrix has no closed form and varies within the element. Version 8 adds **automatic structured 2D mesh generation**: `create_quad_mesh`/`create_triangular_mesh` turn a rectangular domain and a subdivision count into a fully connected, correctly oriented mesh, plus whole-mesh validation, shape-quality metrics, and a JSON export/import foundation. Version 9 adds a **lightweight 2D geometry foundation and distributed loads**: `Rectangle` with named boundary regions (`"left"`/`"right"`/`"top"`/`"bottom"`), tolerance-based `mesh.nodes_on_boundary()` node selection, generic topological boundary-edge detection, distributed surface tractions converted to equivalent nodal forces by edge integration, boundary-region boundary conditions, and a `LoadCase` workflow abstraction. Version 10 adds a **professional loading system**: `LoadCase` no longer needs a mesh up front, `LoadCombination` combines multiple load cases with load factors (`1.2 * Dead + 1.6 * Live`), `LoadManager` registers and solves every load case/combination for one mesh into a named `ResultSet`, and two new load types -- `GravityLoad` (a body force) and `TemperatureLoad` (uniform thermal expansion) -- join a simple penalty-method `MultiPointConstraint` for tying two DOFs to equal displacement, all built on the unmodified Version 3 solver. Version 11 adds a **dynamic finite element analysis foundation**: consistent and lumped element mass matrices for CST and Q4, `RayleighDamping`, a `DynamicSystem` abstraction for `M u'' + C u' + K u = F(t)`, time-dependent loads (`ConstantLoad`/`StepLoad`/`SinusoidalLoad`), natural-frequency (modal) analysis via the generalized eigenvalue problem `K phi = lambda M phi` (SciPy-backed), and Newmark-beta time integration through `DynamicAnalysis`. Version 12 adds **advanced dynamic analysis**: mass-normalized mode shapes, modal participation factors and effective modal mass, **modal superposition** (decoupling the dynamic equation into independent per-mode single-DOF equations, reusing the unmodified Version 11 Newmark machinery), modal damping ratios, **steady-state harmonic response and frequency-sweep analysis** (`[-omega^2*M + i*omega*C + K]U = F`), and a **response spectrum foundation** (interpolated spectral acceleration vs. period, plus per-mode spectral response). Version 13 adds the toolkit's first **nonlinear finite element analysis foundation**: `NonlinearAnalysis` solves `R(u) = F_ext - F_int(u) = 0` with incremental load stepping and Newton-Raphson iteration (`K_t * du = R`), a `NonlinearMaterial` interface built on an immutable trial/committed material-state pattern, an `ElasticMaterialAdapter` validating the solver against the existing linear solver, a genuine uniaxial `ElasticPerfectlyPlasticMaterial1D` model (no hardening), and nonlinear internal-force/tangent-stiffness support for CST and Q4 (with independent per-Gauss-point state for Q4) -- all without modifying any existing linear element or solver. Version 14 upgrades material plasticity from that fixed-yield model to genuine **hardening**, built entirely on Version 13's unchanged `NonlinearMaterial` interface and trial/committed state pattern: `BilinearIsotropicHardeningMaterial1D` (an expanding yield surface, `sigma_y = sigma_y0 + H*alpha`), `BilinearKinematicHardeningMaterial1D` (a translating yield surface via a back stress `X`, reproducing the Bauschinger effect), `MultilinearIsotropicHardeningMaterial1D` (a full piecewise-linear stress-strain curve for monotonic loading), and `DecoupledIsotropicHardeningAdapter2D` (bringing genuine, if deliberately simplified, plastic behavior to CST/Q4). Both bilinear models use an exact 1D return-mapping algorithm and a consistent algorithmic tangent (`D_t = E*H/(E+H)`); `H = 0` exactly reproduces `ElasticPerfectlyPlasticMaterial1D`. Version 15 expands the toolkit from 2D into genuine **3D solid mechanics**: `Tet4Element3D` and `Hex8Element3D` (a constant-`B` closed-form tetrahedron and a 2x2x2-Gauss-integrated trilinear hexahedron, the 3D analogues of CST and Q4), a `femtoolkit.continuum.tensor` module for Voigt<->tensor conversion and stress invariants, `LinearElastic3D`, and `J2Plasticity3D` -- the toolkit's first genuine multiaxial (von Mises) yield surface, with an associative flow rule, a closed-form tensor radial-return algorithm, linear isotropic hardening, and a numerically-differentiated algorithmic tangent, all on the unmodified Version 13 `NonlinearMaterial` interface. It does **not** yet contain CAD/NURBS or curved geometry, temperature gradients, rigid-body constraints, contact, unstructured or CAD-driven 3D meshing, adaptive refinement, higher-order continuum elements, 3D beams, Timoshenko beams, plate or shell elements, nonlinear dynamics, explicit time integration, random vibration, seismic-code-specific workflows/combination rules, Drucker-Prager/Mohr-Coulomb/Gurson plasticity, nonlinear hardening laws, kinematic hardening in 3D, finite-strain plasticity, hyperelasticity, viscoelasticity, large-deformation (geometric) nonlinearity, the arc-length method, or visualization.
+**This is the Version 16 release.** Version 1 established the project's architecture and core domain model. Version 2 added the basic mathematical foundation for FEA. Version 3 turned that into a validated **1D structural analysis** capability (a bar element, `StaticLinearAnalysis`, and results). Version 4 extended the same analysis workflow to **2D truss structures**: two translational DOFs per node, a `TrussElement2D` transformed from local to global coordinates via its direction cosines, and X/Y loads, constraints, displacements, reactions, and member forces. Version 5 added **2D Euler-Bernoulli beam and frame analysis**: a rotational DOF per node, a `FrameElement2D` that resists axial force, shear force, and bending moment, and per-element shear/moment/bending-stress results. Version 6 introduced the toolkit's first true **2D continuum element**: a `CSTElement2D` (3-node constant strain triangle) representing a finite *area* of material rather than a line member, with plane stress/strain constitutive models, a strain-displacement (`B`) matrix, and von Mises/principal stress recovery. Version 7 added a second continuum element, `QuadElement2D` (4-node bilinear quadrilateral, "Q4"): natural coordinates, isoparametric mapping, the Jacobian, and 2x2 Gauss quadrature, needed because -- unlike the CST element -- a Q4 element's strain-displacement matrix has no closed form and varies within the element. Version 8 adds **automatic structured 2D mesh generation**: `create_quad_mesh`/`create_triangular_mesh` turn a rectangular domain and a subdivision count into a fully connected, correctly oriented mesh, plus whole-mesh validation, shape-quality metrics, and a JSON export/import foundation. Version 9 adds a **lightweight 2D geometry foundation and distributed loads**: `Rectangle` with named boundary regions (`"left"`/`"right"`/`"top"`/`"bottom"`), tolerance-based `mesh.nodes_on_boundary()` node selection, generic topological boundary-edge detection, distributed surface tractions converted to equivalent nodal forces by edge integration, boundary-region boundary conditions, and a `LoadCase` workflow abstraction. Version 10 adds a **professional loading system**: `LoadCase` no longer needs a mesh up front, `LoadCombination` combines multiple load cases with load factors (`1.2 * Dead + 1.6 * Live`), `LoadManager` registers and solves every load case/combination for one mesh into a named `ResultSet`, and two new load types -- `GravityLoad` (a body force) and `TemperatureLoad` (uniform thermal expansion) -- join a simple penalty-method `MultiPointConstraint` for tying two DOFs to equal displacement, all built on the unmodified Version 3 solver. Version 11 adds a **dynamic finite element analysis foundation**: consistent and lumped element mass matrices for CST and Q4, `RayleighDamping`, a `DynamicSystem` abstraction for `M u'' + C u' + K u = F(t)`, time-dependent loads (`ConstantLoad`/`StepLoad`/`SinusoidalLoad`), natural-frequency (modal) analysis via the generalized eigenvalue problem `K phi = lambda M phi` (SciPy-backed), and Newmark-beta time integration through `DynamicAnalysis`. Version 12 adds **advanced dynamic analysis**: mass-normalized mode shapes, modal participation factors and effective modal mass, **modal superposition** (decoupling the dynamic equation into independent per-mode single-DOF equations, reusing the unmodified Version 11 Newmark machinery), modal damping ratios, **steady-state harmonic response and frequency-sweep analysis** (`[-omega^2*M + i*omega*C + K]U = F`), and a **response spectrum foundation** (interpolated spectral acceleration vs. period, plus per-mode spectral response). Version 13 adds the toolkit's first **nonlinear finite element analysis foundation**: `NonlinearAnalysis` solves `R(u) = F_ext - F_int(u) = 0` with incremental load stepping and Newton-Raphson iteration (`K_t * du = R`), a `NonlinearMaterial` interface built on an immutable trial/committed material-state pattern, an `ElasticMaterialAdapter` validating the solver against the existing linear solver, a genuine uniaxial `ElasticPerfectlyPlasticMaterial1D` model (no hardening), and nonlinear internal-force/tangent-stiffness support for CST and Q4 (with independent per-Gauss-point state for Q4) -- all without modifying any existing linear element or solver. Version 14 upgrades material plasticity from that fixed-yield model to genuine **hardening**, built entirely on Version 13's unchanged `NonlinearMaterial` interface and trial/committed state pattern: `BilinearIsotropicHardeningMaterial1D` (an expanding yield surface, `sigma_y = sigma_y0 + H*alpha`), `BilinearKinematicHardeningMaterial1D` (a translating yield surface via a back stress `X`, reproducing the Bauschinger effect), `MultilinearIsotropicHardeningMaterial1D` (a full piecewise-linear stress-strain curve for monotonic loading), and `DecoupledIsotropicHardeningAdapter2D` (bringing genuine, if deliberately simplified, plastic behavior to CST/Q4). Both bilinear models use an exact 1D return-mapping algorithm and a consistent algorithmic tangent (`D_t = E*H/(E+H)`); `H = 0` exactly reproduces `ElasticPerfectlyPlasticMaterial1D`. Version 15 expands the toolkit from 2D into genuine **3D solid mechanics**: `Tet4Element3D` and `Hex8Element3D` (a constant-`B` closed-form tetrahedron and a 2x2x2-Gauss-integrated trilinear hexahedron, the 3D analogues of CST and Q4), a `femtoolkit.continuum.tensor` module for Voigt<->tensor conversion and stress invariants, `LinearElastic3D`, and `J2Plasticity3D` -- the toolkit's first genuine multiaxial (von Mises) yield surface, with an associative flow rule, a closed-form tensor radial-return algorithm, linear isotropic hardening, and a numerically-differentiated algorithmic tangent, all on the unmodified Version 13 `NonlinearMaterial` interface. Version 16 adds a **geometric nonlinearity and large-deformation foundation**: the deformation gradient and Green-Lagrange strain (`femtoolkit.continuum.deformation`), a Total Lagrangian formulation for `TrussElement2D`/`Tet4Element3D`/`Hex8Element3D` (`femtoolkit.analysis.geometric_nonlinear`), `SaintVenantKirchhoff3D`/`1D` finite-strain elastic materials, and a `K_material`/`K_geometric` tangent-stiffness split -- selected via one new `NonlinearAnalysis(geometric_nonlinearity=True)` flag that leaves every Version 13-15 analysis completely unchanged. It does **not** yet contain CAD/NURBS or curved geometry, temperature gradients, rigid-body constraints, contact, unstructured or CAD-driven 3D meshing, adaptive refinement, higher-order continuum elements, large-displacement 3D beams/Timoshenko beams, plate or shell elements, nonlinear dynamics, explicit time integration, random vibration, seismic-code-specific workflows/combination rules, Drucker-Prager/Mohr-Coulomb/Gurson plasticity, nonlinear hardening laws, kinematic hardening in 3D, finite-strain plasticity, advanced hyperelasticity (Neo-Hookean, Mooney-Rivlin, Ogden), viscoelasticity, an Updated Lagrangian formulation, the arc-length/Riks method, or visualization.
 
 ## Current Features
 
@@ -168,6 +168,15 @@ An open-source Python toolkit for developing finite element analysis (FEA) capab
 - **`J2Plasticity3D`** — the toolkit's first genuine multiaxial (von Mises) yield surface, associative flow, and closed-form tensor radial return with linear isotropic hardening, on the unchanged `NonlinearMaterial` interface; a numerically-differentiated algorithmic tangent (self-consistent with the actual return map by construction) via one new zero-defaulted `MaterialState` field, `plastic_multiplier`
 - **Zero changes to `StaticLinearAnalysis`/`AnalysisResult`** — both were already fully generic over `dofs_per_node` and element protocol shape, so TET4/HEX8 work through the unmodified Version 1-14 linear solver (proven by a 3D patch test); `analysis/mass.py`, `analysis/stiffness.py`, and `analysis/nonlinear_elements.py` extend additively, and `ElasticMaterialAdapter` gains a `from_linear_elastic_3d` constructor
 - **Engineering validation** — 3D patch tests (TET4 and HEX8) reproducing an imposed linear displacement field's exact constant strain; a 3D nonlinear-vs-linear regression test (elastic adapter); TET4/HEX8 driven into J2 plasticity through full Newton-Raphson load stepping, including a HEX8 bending case with independently yielding Gauss points (see [Version 15](#version-15) below)
+
+**Version 16 — geometric nonlinearity and large-deformation foundation**
+
+- **`femtoolkit.continuum.deformation`** — deformation gradient (`F = I + Grad(u)`), right Cauchy-Green tensor, Green-Lagrange strain (`E = 1/2(F^T F - I)`, objective by construction: exactly zero under any rigid-body rotation), `validate_deformation_gradient` (rejects element inversion as `InvalidDeformationGradientError`)
+- **`SaintVenantKirchhoff3D`/`SaintVenantKirchhoff1D`** — `S = C : E`, reusing the existing `isotropic_3d_matrix` applied to Green-Lagrange strain instead of small strain; path-independent, constant tangent, the `NonlinearMaterial` interface unchanged
+- **`femtoolkit.analysis.geometric_nonlinear`** — a Total Lagrangian formulation for `TrussElement2D`, `Tet4Element3D`, and `Hex8Element3D`: compact `F @ S @ Grad0(N)` internal force, a closed-form "initial stress" `K_geometric`, and `K_material` obtained by subtracting it from a numerically differentiated total tangent (avoiding a hand-derived material tangent's risk of a silent sign/index error) — reduces exactly to the existing small-strain stiffness at the reference configuration for all three elements
+- **`NonlinearAnalysis(geometric_nonlinearity=True)`** — one new constructor flag selects the Total Lagrangian dispatch instead of the small-strain one; the Newton-Raphson math itself (`R = F_ext - F_int`, `K_t @ du = R`, load stepping) is completely unchanged, and the default (`False`) preserves every Version 13-15 analysis exactly
+- **Rigid-body objectivity** — translation, rotation, and combined rigid motion verified to give `E ≈ 0` (and therefore `S ≈ 0`, `F_int ≈ 0`) to floating-point precision, for all three element types — the single most important correctness check for this version
+- **Engineering validation** — finite-deformation patch tests (homogeneous uniaxial extension, triaxial extension, and simple shear reproduce the exact analytical `E`/`S`); a classic shallow (von Mises) truss whose large-displacement apex deflection is over 10x the linear prediction, with Newton iteration counts climbing near its snap-through limit point and a documented (not force-fixed) failure past it; an external-work-vs-internal-strain-energy consistency check (see [Version 16](#version-16) below)
 
 ## Installation
 
@@ -1720,6 +1729,91 @@ alpha       = alpha_old + Delta gamma
 
 Version 15 does not include finite-strain plasticity, large deformation, updated/total Lagrangian formulations, geometric stiffness, contact, friction, damage, fracture, creep, viscoelasticity, anisotropic plasticity, Drucker-Prager/Mohr-Coulomb/Gurson, nonlinear hardening laws, kinematic hardening in 3D, explicit dynamics, automatic 3D meshing, adaptive remeshing, parallel/GPU computing, or visualization -- only the 3D linear elasticity and J2 isotropic-hardening plasticity foundation (TET4, HEX8, tensor utilities, radial return, algorithmic tangent) is provided. See the [Roadmap](#roadmap).
 
+## Version 16
+
+Every material through Version 15 -- even genuinely nonlinear ones like J2 plasticity -- treats geometry as fixed: strain is `B @ u` with `B` computed once from an element's unchanging node coordinates. This is **material nonlinearity**: the stress-strain law itself changes (e.g. yielding), but the relationship between strain and displacement stays linear. Version 16 adds the complementary, independent kind of nonlinearity: **geometric nonlinearity**, where the structure's *changing shape* affects equilibrium and stiffness -- a perfectly linear-elastic material can still need a geometrically nonlinear analysis if its displacements or rotations are large enough (a flagpole cable, a shallow truss, a bowing beam), and conversely a materially nonlinear (plastic) analysis can stay geometrically linear if displacements stay small (exactly what every nonlinear analysis through Version 15 does).
+
+```text
+Initial Geometry -> Apply Displacement -> Geometry Changes -> Strain/Stress Changes
+    -> Internal Force Changes -> Geometric Stiffness Changes -> Newton-Raphson Equilibrium
+```
+
+### Small vs. large deformation, and why linear strain breaks down
+
+**Small deformation** (`u << characteristic dimension`) is the regime every prior version assumes: displacements are small enough that the linear strain-displacement relationship `epsilon = B @ u` is an excellent approximation. **Large deformation** is the regime where `u` is no longer negligible -- and critically, a large *rotation* alone (with zero actual straining) makes the linear strain measure report spurious nonzero "strain," because it does not distinguish stretch from rotation. This is why a genuinely different strain measure is needed, not just a bigger `B` matrix.
+
+### Deformation gradient and Green-Lagrange strain
+
+Working in the **reference configuration** (a material point's fixed, undeformed location `X`) vs. the **current configuration** (`x = X + u(X)`, after displacement), the **deformation gradient**
+
+```text
+F = I + Grad(u) = dx/dX
+```
+
+maps a reference line element to its current image, capturing stretch *and* rotation together. The **Green-Lagrange strain tensor**
+
+```text
+C = F^T F                    (right Cauchy-Green deformation tensor)
+E = 1/2 (C - I) = 1/2 (F^T F - I)
+```
+
+fixes the objectivity problem: for a pure rotation `F = R` (`R^T R = I`), `C = I` exactly, so `E = 0` exactly -- regardless of how large the rotation is. `femtoolkit.continuum.deformation` (new) implements `displacement_gradient`, `deformation_gradient`, `right_cauchy_green`, `green_lagrange_strain_tensor`/`_voigt` (reusing `femtoolkit.continuum.tensor`'s existing Voigt conventions), and `validate_deformation_gradient` (rejecting non-finite or non-positive-determinant `F` -- element inversion -- as `InvalidDeformationGradientError`). This is a **separate, additive pathway**: every small-strain element, material, and analysis from Versions 1-15 is completely untouched.
+
+### Total Lagrangian formulation
+
+All three geometrically nonlinear elements (truss, TET4, HEX8) use the **reference** configuration for integration, geometry, and volume -- exactly what `Node`'s immutability already guarantees, since `element.nodes[i].x/y/z` never change. "Current configuration" is simply reference-plus-displacement, recomputed fresh from the trial displacement every Newton-Raphson iteration; there is no mutable "deformed mesh" anywhere in this toolkit, and none is needed. This turned out to mean `NonlinearAnalysis`'s existing Newton-Raphson loop needed **no structural changes** at all -- "update configuration" (the extra conceptual step a large-displacement analysis needs) is already exactly what happens whenever a new trial displacement is passed to an element's dispatch function.
+
+Internal force uses the standard, compact virtual-work formula (deliberately used instead of hand-assembling a nonlinear `B_NL` matrix, since it is safer to implement correctly):
+
+```text
+F_int_a = integral_V0 ( F @ S @ Grad0(Na) ) dV0
+```
+
+with `S` the **second Piola-Kirchhoff stress** -- the energy-conjugate partner of Green-Lagrange strain, symmetric, and purely reference-configuration, exactly what a Total Lagrangian formulation needs. `femtoolkit.continuum.stress` gains `first_piola_kirchhoff_from_second`/`cauchy_stress_from_second_piola_kirchhoff` conversions, used only for *reporting* the more physically intuitive `P`/Cauchy stress on demand -- never by the formulation itself.
+
+### St. Venant-Kirchhoff finite-strain elasticity
+
+`femtoolkit.materials.finite_strain` adds `SaintVenantKirchhoff3D`/`SaintVenantKirchhoff1D`: `S = C : E`, reusing the *exact same* `isotropic_3d_matrix` already used for small-strain linear elasticity, just applied to Green-Lagrange strain instead. Both implement the unchanged `NonlinearMaterial` interface (`initial_state`/`trial_state`/`tangent_modulus`), are path-independent (elastic, `trial_state` ignores `committed_state`), and have a *constant* tangent (since `S` is linear in `E`). This is deliberately the least-novel constitutive choice -- the new behavior this version introduces is isolated entirely to the *kinematics*, not a new material law. **Limitation:** St. Venant-Kirchhoff handles arbitrarily large rotations/displacements correctly but is not a general hyperelastic model -- it produces non-physical stiffening behavior at large *compressive* strain, a known, standard limitation of this "foundation" choice (see the Version 17 preview below).
+
+### Geometric stiffness and the material/geometric tangent split
+
+```text
+K_t = K_material + K_geometric
+```
+
+`K_geometric` (the "initial stress" stiffness) has a simple closed form depending only on the current stress state, not on how it responds to further strain:
+
+```text
+K_geometric[a,b] = integral_V0 ( Grad0(Na) . S . Grad0(Nb) ) dV0 * I
+```
+
+`K_material`, in contrast, is **not** implemented from a separately hand-derived closed form -- a material tangent obtained by differentiating `F_int` through both `F` and `S(E(F))` is a genuine source of silent sign/index errors (the same concern that led J2 plasticity's tangent to use numerical differentiation in Version 15). Instead, `K_t` is computed once via central differences of the internal-force formula above, and `K_material = K_t - K_geometric` -- making `K_t` self-consistent with the actual implementation *by construction*. Both quantities are exposed separately (`tet4_geometric_stiffness_split`/`hex8_geometric_stiffness_split`) for testing and documentation. At the reference configuration (zero strain, zero stress), `K_geometric` vanishes and `K_material` reduces *exactly* to the existing small-strain TET4/HEX8 stiffness -- verified in the test suite as a direct check that the large-displacement generalization is consistent with the Version 15 baseline.
+
+### Large-displacement truss
+
+The 2-node truss's tangent stiffness was derived directly (not recalled from memory) by differentiating its own compact internal-force formula, then cross-validated numerically:
+
+```text
+E = (L^2 - L0^2) / (2 * L0^2)                    (Green-Lagrange axial strain)
+T = S * A0 * (L / L0)                             (internal axial force, S = material.trial_state(E, ...).stress)
+K_material_local  = C_T * A0 * (L/L0)^2 / L0 * (n (x) n)
+K_geometric_local = (T/L) * I
+```
+
+matching the same "initial stress" formula used for TET4/HEX8 (`Grad0(N)=+/-1/L0`, `S*A0 = T*L0/L`, `V0=A0*L0`), and reducing exactly to the familiar small-displacement truss stiffness `(C_T*A0/L0)*(n (x) n)` at `L=L0`. For a 2-node truss, the Total Lagrangian and **corotational** formulations coincide exactly (there is only one possible current orientation to separate "rigid rotation" from "deformation" against), so this single implementation satisfies both -- the primary validation case for this version, demonstrated in `examples/geometric_truss.py` with a classic shallow (von Mises) truss whose nonlinear apex deflection is over 10x the linear prediction under the same load.
+
+### Newton-Raphson integration and rigid-body objectivity
+
+`NonlinearAnalysis` gains one new constructor flag, `geometric_nonlinearity: bool = False` (default preserves every Version 13-15 analysis exactly), selecting between the small-strain dispatch (`femtoolkit.analysis.nonlinear_elements`, unchanged) and the new Total Lagrangian dispatch (`femtoolkit.analysis.geometric_nonlinear`, supporting `TrussElement2D`/`Tet4Element3D`/`Hex8Element3D`) -- the residual equation, Newton-Raphson iteration, and load stepping (`R = F_ext - F_int`, `K_t @ du = R`) are completely unchanged either way. The single most important correctness check for this version: a pure rigid-body translation, rotation, or combination of both must produce `E = 0` (and therefore `S = 0`, `F_int = 0`) to floating-point precision, for every geometrically nonlinear element -- not from any special-cased check, but as a direct, unavoidable consequence of Green-Lagrange strain's objectivity (`tests/validation/test_rigid_body_motion.py`).
+
+### Snap-through foundation
+
+A shallow truss loaded further begins to exhibit **snap-through**: as the apex approaches the line connecting its supports, stiffness in the load direction drops toward zero and the Newton-Raphson iteration count for a fixed load increment grows sharply -- the honest, load-controlled signature of approaching a limit point. This version demonstrates and documents that signature (`tests/validation/test_geometric_truss_large_displacement.py`) rather than implementing the arc-length/Riks method that would be needed to trace *past* a true limit point; a load large enough to genuinely pass the limit point is expected, and verified, to raise `NonlinearConvergenceError` under plain load control rather than silently producing an unstable result.
+
+### Limitations
+
+Version 16 does **not** include finite-strain plasticity (J2 plasticity remains a separate, small-strain-only model), advanced hyperelasticity (Neo-Hookean, Mooney-Rivlin, Ogden), an Updated Lagrangian formulation, contact, friction, damage, fracture, the arc-length/Riks method, adaptive remeshing, explicit dynamics, or GPU/parallel computing. **Large-displacement frame/beam analysis is deliberately out of scope for this version**: large-rotation beam kinematics needs a rotation parametrization -- a genuinely different and harder problem than large-displacement truss/solid kinematics, where translation alone suffices -- so `FrameElement2D` is untouched, reserved for a future version once that can be done properly rather than rushed. See the [Roadmap](#roadmap).
+
 ## Project Structure
 
 ```text
@@ -1738,7 +1832,9 @@ finite-element-toolkit/
 │   │                       # DecoupledIsotropicHardeningAdapter2D),
 │   │                       # j2_plasticity.py (J2Plasticity3D: von Mises
 │   │                       # yield surface, radial return, linear isotropic
-│   │                       # hardening, algorithmic tangent)
+│   │                       # hardening, algorithmic tangent),
+│   │                       # finite_strain.py (SaintVenantKirchhoff3D/1D:
+│   │                       # finite-strain elastic materials, S = C:E)
 │   ├── mesh/               # Node, Element, BarElement, TrussElement2D,
 │   │                       # FrameElement2D, CSTElement2D, QuadElement2D,
 │   │                       # Tet4Element3D, Hex8Element3D, Mesh
@@ -1761,7 +1857,12 @@ finite-element-toolkit/
 │   │                       # von Mises, 3D principal stresses),
 │   │                       # edge.py (equivalent nodal force integration),
 │   │                       # mass.py (consistent/lumped element mass
-│   │                       # matrices, incl. TET4/HEX8)
+│   │                       # matrices, incl. TET4/HEX8),
+│   │                       # deformation.py (deformation gradient, right
+│   │                       # Cauchy-Green tensor, Green-Lagrange strain,
+│   │                       # element-inversion validation); first
+│   │                       # Piola-Kirchhoff/Cauchy stress conversions
+│   │                       # added to stress.py
 │   ├── analysis/           # DOFs (incl. RotationDOF), boundary conditions
 │   │                       # (incl. boundary_conditions_for_region),
 │   │                       # loads, distributed_load.py (DistributedLoad,
@@ -1798,7 +1899,11 @@ finite-element-toolkit/
 │   │                       # (CST/Q4/TET4/HEX8 internal force + tangent
 │   │                       # stiffness, per-Gauss-point state),
 │   │                       # nonlinear_analysis.py
-│   │                       # (NonlinearAnalysis, NonlinearSolverSettings)
+│   │                       # (NonlinearAnalysis, NonlinearSolverSettings,
+│   │                       # incl. the geometric_nonlinearity flag),
+│   │                       # geometric_nonlinear.py (Total Lagrangian
+│   │                       # truss/TET4/HEX8 internal force + tangent,
+│   │                       # K_material/K_geometric split)
 │   ├── results/            # AnalysisResult (incl. element_hydrostatic_stress),
 │   │                       # FrameEndForces, FrameElementForces,
 │   │                       # ResultSet (named load case/combination results),
@@ -1808,7 +1913,8 @@ finite-element-toolkit/
 │   │                       # NonlinearAnalysisResult)
 │   ├── units/               # SI unit constants
 │   ├── exceptions/          # Custom exception types (incl. DegenerateElementError,
-│   │                       # DuplicateNodeCoordinatesError)
+│   │                       # DuplicateNodeCoordinatesError,
+│   │                       # InvalidDeformationGradientError)
 │   ├── config.py             # Package metadata and defaults
 │   └── logging_config.py     # Package logger configuration
 ├── examples/                  # Runnable example scripts
@@ -1887,14 +1993,19 @@ python examples/hex8_linear_elastic.py           # Version 15: single HEX8 eleme
 python examples/j2_material.py                   # Version 15: J2 material uniaxial strain sweep
 python examples/tet4_j2_plasticity.py            # Version 15: TET4 J2 plasticity via Newton-Raphson
 python examples/hex8_j2_plasticity.py            # Version 15: HEX8 with independently plastic Gauss points
+python examples/geometric_truss.py               # Version 16: large-displacement (shallow) truss, linear vs. nonlinear
+python examples/finite_strain_kinematics.py      # Version 16: deformation gradient + Green-Lagrange strain
+python examples/finite_strain_elastic.py         # Version 16: St. Venant-Kirchhoff material response
+python examples/nonlinear_tet4.py                # Version 16: Total Lagrangian TET4 via Newton-Raphson
+python examples/nonlinear_hex8.py                # Version 16: Total Lagrangian HEX8 via Newton-Raphson
 ```
 
 ## Roadmap
 
 Future versions will build a more complete FEA solver on top of this foundation. None of the following is implemented yet:
 
-- **Version 16** — Geometric nonlinearity and large-deformation FEA: finite kinematics, the deformation gradient, Green-Lagrange strain, second/first Piola-Kirchhoff stress, updated/total Lagrangian formulations, geometric stiffness, and large-displacement analysis
-- **Later** — Unstructured/CAD-driven meshing, higher-order continuum elements, contact, seismic-code response-spectrum combination rules, GUI, visualization, reporting, and more
+- **Version 17** — Advanced hyperelasticity and finite-strain materials: Neo-Hookean (compressible), Mooney-Rivlin, a hyperelastic constitutive interface, finite-strain material state, a consistent hyperelastic tangent, and large-deformation rubber-like material analysis
+- **Later** — Finite-strain plasticity, Updated Lagrangian formulation, the arc-length/Riks method, large-rotation beam kinematics, contact, unstructured/CAD-driven meshing, higher-order continuum elements, seismic-code response-spectrum combination rules, GUI, visualization, reporting, and more
 
 ## License
 
