@@ -7,10 +7,13 @@ from femtoolkit.materials.hardening import (
     DecoupledIsotropicHardeningAdapter2D,
     MultilinearIsotropicHardeningMaterial1D,
 )
+from femtoolkit.materials.hyperelastic import HyperelasticMaterial
 from femtoolkit.materials.j2_plasticity import J2Plasticity3D
 from femtoolkit.materials.linear_elastic_2d import LinearElastic2D
 from femtoolkit.materials.linear_elastic_3d import LinearElastic3D
 from femtoolkit.materials.material import Material
+from femtoolkit.materials.mooney_rivlin import MooneyRivlin3D
+from femtoolkit.materials.neo_hookean import NeoHookean3D
 from femtoolkit.materials.nonlinear import (
     ElasticMaterialAdapter,
     ElasticPerfectlyPlasticMaterial1D,
@@ -24,12 +27,15 @@ __all__ = [
     "DecoupledIsotropicHardeningAdapter2D",
     "ElasticMaterialAdapter",
     "ElasticPerfectlyPlasticMaterial1D",
+    "HyperelasticMaterial",
     "J2Plasticity3D",
     "LinearElastic2D",
     "LinearElastic3D",
     "Material",
     "MaterialState",
+    "MooneyRivlin3D",
     "MultilinearIsotropicHardeningMaterial1D",
+    "NeoHookean3D",
     "NonlinearMaterial",
     "SaintVenantKirchhoff1D",
     "SaintVenantKirchhoff3D",

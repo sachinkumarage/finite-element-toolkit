@@ -175,6 +175,38 @@ def right_cauchy_green(deformation_gradient_tensor: np.ndarray) -> np.ndarray:
     return deformation_gradient_tensor.T @ deformation_gradient_tensor
 
 
+def isochoric_deformation_gradient(deformation_gradient_tensor: np.ndarray) -> np.ndarray:
+    """Split off the volumetric part of ``F``, returning the isochoric part ``F_bar``.
+
+    .. code-block:: text
+
+        F = J^(1/3) * F_bar          (F_bar has det(F_bar) = 1 exactly)
+
+    This is the **volumetric/isochoric decomposition** (Version 17):
+    separating a *volume-changing* part (the scalar ``J^(1/3)`` times the
+    identity direction) from a *shape-changing* part (``F_bar``, which by
+    construction preserves volume). It underlies compressible hyperelastic
+    models that penalize volume change and shape change independently
+    (see :mod:`femtoolkit.materials.mooney_rivlin`), and is especially
+    useful for nearly incompressible materials, where the volumetric part
+    should stay close to its reference value (``J approx 1``) while the
+    isochoric part carries essentially all of the deformation.
+
+    Args:
+        deformation_gradient_tensor: The 3x3 deformation gradient ``F``.
+
+    Returns:
+        A 3x3 NumPy array, ``F_bar = J^(-1/3) * F``, with ``det(F_bar)
+        approx 1``.
+
+    Raises:
+        InvalidDeformationGradientError: If ``F`` is invalid (see
+            :func:`validate_deformation_gradient`).
+    """
+    jacobian = validate_deformation_gradient(deformation_gradient_tensor)
+    return jacobian ** (-1.0 / 3.0) * deformation_gradient_tensor
+
+
 def green_lagrange_strain_tensor(deformation_gradient_tensor: np.ndarray) -> np.ndarray:
     """Compute the Green-Lagrange strain tensor, ``E = 1/2 (C - I) = 1/2 (F^T F - I)``.
 

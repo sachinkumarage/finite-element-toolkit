@@ -520,6 +520,40 @@ def tet4_geometric_internal_force_and_tangent(
     return f_int, k_t, NonlinearElementState(states=(trial_material_state,))
 
 
+def tet4_deformation_gradient(
+    element: Tet4Element3D, displacements: Sequence[float]
+) -> np.ndarray:
+    """Return the (constant, single-point) deformation gradient ``F`` for a TET4.
+
+    A small, purely additive reporting helper (Version 17): composes the
+    same reference-gradient/displacement-gradient machinery already used
+    internally by :func:`tet4_geometric_internal_force_and_tangent`, so a
+    caller can recover ``F`` -- and from it, via
+    :class:`~femtoolkit.materials.hyperelastic.HyperelasticMaterial`'s
+    public methods, strain energy density, the Jacobian ``J``, and any of
+    the PK1/PK2/Cauchy stress measures -- without this module needing to
+    extend :class:`~femtoolkit.results.nonlinear_result.NonlinearAnalysisResult`
+    (which stores only Voigt strain/stress, unchanged since Version 16).
+
+    Args:
+        element: The TET4 element.
+        displacements: Trial nodal displacements, ordered per
+            ``element.dof_keys()`` (12 entries).
+
+    Returns:
+        The 3x3 deformation gradient ``F``.
+
+    Raises:
+        InvalidDeformationGradientError: If ``F`` is non-finite or
+            non-positive-determinant (element inversion).
+    """
+    reference_gradients = _tet4_reference_gradients(element)
+    gradient_h = displacement_gradient(displacements, reference_gradients)
+    deformation_gradient_tensor = deformation_gradient(gradient_h)
+    validate_deformation_gradient(deformation_gradient_tensor)
+    return deformation_gradient_tensor
+
+
 # --------------------------------------------------------------------------
 # HEX8
 # --------------------------------------------------------------------------
@@ -657,6 +691,38 @@ def hex8_geometric_internal_force_and_tangent(
     k_t = _numerical_tangent(internal_force, displacements, n_dofs=24)
 
     return f_int, k_t, NonlinearElementState(states=tuple(trial_states))
+
+
+def hex8_deformation_gradients(
+    element: Hex8Element3D, displacements: Sequence[float]
+) -> list[np.ndarray]:
+    """Return the deformation gradient ``F`` at each of a HEX8's 8 Gauss points.
+
+    See :func:`tet4_deformation_gradient` for why this reporting helper
+    exists; the HEX8 analogue, one ``F`` per Gauss point (matching the
+    per-Gauss-point granularity already used for strain/stress state
+    throughout this module).
+
+    Args:
+        element: The HEX8 element.
+        displacements: Trial nodal displacements, ordered per
+            ``element.dof_keys()`` (24 entries).
+
+    Returns:
+        A length-8 list of 3x3 deformation gradients, in Gauss-point order.
+
+    Raises:
+        InvalidDeformationGradientError: If any Gauss point's deformation
+            gradient is non-finite or non-positive-determinant.
+    """
+    gauss_point_data = _hex8_reference_gradients_at_gauss_points(element)
+    deformation_gradients = []
+    for reference_gradients, _ in gauss_point_data:
+        gradient_h = displacement_gradient(displacements, reference_gradients)
+        deformation_gradient_tensor = deformation_gradient(gradient_h)
+        validate_deformation_gradient(deformation_gradient_tensor)
+        deformation_gradients.append(deformation_gradient_tensor)
+    return deformation_gradients
 
 
 # --------------------------------------------------------------------------
