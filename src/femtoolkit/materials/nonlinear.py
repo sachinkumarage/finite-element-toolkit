@@ -71,6 +71,18 @@ strain and hardening variable *before* this step's correction) inside
 ``committed_state`` to -- so it can differentiate its own return map
 numerically without mutating any shared instance state (see that
 module's docstring for why this matters for Gauss-point independence).
+
+Version 18 (:mod:`femtoolkit.materials.finite_strain_plasticity`) adds
+one final field, ``plastic_deformation_gradient``: small-strain
+plasticity's *additive* split ``epsilon = epsilon_e + epsilon_p`` has no
+meaning once strains are large enough that rotation must be tracked
+exactly, so finite-strain plasticity instead carries the **plastic
+deformation gradient** ``Fp`` -- the multiplicative decomposition
+``F = Fe @ Fp`` splits total deformation into an (irrecoverable) plastic
+part and a (recoverable, stress-producing) elastic part. Defaulted to
+``None`` (not an identity matrix -- see the field's own docstring for
+why), so every material through Version 17 is completely unaffected by
+this field's addition; a finite-strain plastic material always sets it.
 """
 
 from __future__ import annotations
@@ -145,6 +157,16 @@ class MaterialState:
             field's addition). See
             :class:`~femtoolkit.materials.j2_plasticity.J2Plasticity3D`
             for the one material that uses it.
+        plastic_deformation_gradient: The 3x3 plastic deformation
+            gradient ``Fp`` (Version 18), for materials using the
+            multiplicative decomposition ``F = Fe @ Fp``. ``None`` (the
+            default, not an identity matrix) for every material that
+            does not use this field -- a real ``np.eye(3)`` default
+            would be indistinguishable from "this material genuinely
+            computed an identity ``Fp``" and cannot be used as a dataclass
+            field default besides (NumPy arrays are unhashable). See
+            :class:`~femtoolkit.materials.finite_strain_plasticity.FiniteStrainPlasticMaterial`
+            for the one family of materials that sets it.
     """
 
     strain: float | np.ndarray
@@ -154,6 +176,7 @@ class MaterialState:
     hardening_variable: float | np.ndarray = 0.0
     back_stress: float | np.ndarray = 0.0
     plastic_multiplier: float = 0.0
+    plastic_deformation_gradient: np.ndarray | None = None
 
     @property
     def elastic_strain(self) -> float | np.ndarray:
