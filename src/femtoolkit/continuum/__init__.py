@@ -116,6 +116,11 @@ from femtoolkit.continuum.tensor import (
     voigt_stress_to_tensor,
     von_mises_stress_from_tensor,
 )
+from femtoolkit.continuum.thermal import (
+    MIN_THERMAL_STRETCH,
+    elastic_deformation_gradient_from_thermal_split,
+    thermal_deformation_gradient,
+)
 
 __all__ = [
     "GAUSS_1D_2POINT",
@@ -125,6 +130,7 @@ __all__ = [
     "MIN_JACOBIAN_DETERMINANT",
     "MIN_JACOBIAN_DETERMINANT_3D",
     "MIN_RIGHT_CAUCHY_GREEN_DETERMINANT",
+    "MIN_THERMAL_STRETCH",
     "MIN_TRIANGLE_AREA",
     "GaussPoint",
     "GaussPoint3D",
@@ -134,6 +140,7 @@ __all__ = [
     "displacement_gradient",
     "edge_equivalent_nodal_force",
     "edge_shape_functions",
+    "elastic_deformation_gradient_from_thermal_split",
     "first_invariant",
     "first_piola_kirchhoff_from_second",
     "green_lagrange_strain_tensor",
@@ -179,6 +186,7 @@ __all__ = [
     "tet4_shape_functions",
     "tet4_strain_displacement_matrix",
     "tetrahedron_consistent_mass_matrix",
+    "thermal_deformation_gradient",
     "third_invariant",
     "trace",
     "triangle_consistent_mass_matrix",

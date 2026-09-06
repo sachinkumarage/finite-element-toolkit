@@ -83,6 +83,17 @@ part and a (recoverable, stress-producing) elastic part. Defaulted to
 ``None`` (not an identity matrix -- see the field's own docstring for
 why), so every material through Version 17 is completely unaffected by
 this field's addition; a finite-strain plastic material always sets it.
+
+Version 19 (:mod:`femtoolkit.materials.thermoelastic`) adds one final
+field, ``temperature``: a reporting convenience recording the (fixed,
+prescribed) temperature a thermoelastic state was evaluated at. Unlike
+every other field added so far, no material actually *reads* this field
+back -- a thermoelastic material bakes its temperature in as a
+construction-time parameter instead (see that module's docstring for
+why the existing two-argument ``trial_state(strain, committed_state)``
+signature cannot cleanly carry a third, independently-varying
+temperature argument). ``None`` by default, so every material through
+Version 18 is unaffected.
 """
 
 from __future__ import annotations
@@ -167,6 +178,14 @@ class MaterialState:
             field default besides (NumPy arrays are unhashable). See
             :class:`~femtoolkit.materials.finite_strain_plasticity.FiniteStrainPlasticMaterial`
             for the one family of materials that sets it.
+        temperature: The (fixed, prescribed) temperature this state was
+            evaluated at, in kelvin (Version 19). ``None`` for every
+            material that does not use it (the default, so every prior
+            material is unaffected by this field's addition) -- purely a
+            reporting convenience; a thermoelastic material bakes its
+            temperature in at construction time
+            (:meth:`~femtoolkit.materials.thermoelastic.ThermoelasticMaterial3D.at_temperature`)
+            rather than reading it back from here.
     """
 
     strain: float | np.ndarray
@@ -177,6 +196,7 @@ class MaterialState:
     back_stress: float | np.ndarray = 0.0
     plastic_multiplier: float = 0.0
     plastic_deformation_gradient: np.ndarray | None = None
+    temperature: float | None = None
 
     @property
     def elastic_strain(self) -> float | np.ndarray:

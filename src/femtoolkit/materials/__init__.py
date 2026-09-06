@@ -24,6 +24,15 @@ from femtoolkit.materials.nonlinear import (
     MaterialState,
     NonlinearMaterial,
 )
+from femtoolkit.materials.thermal_properties import (
+    TemperatureDependentProperty,
+    ThermalProperty,
+    evaluate_thermal_property,
+)
+from femtoolkit.materials.thermoelastic import (
+    ThermoelasticMaterial3D,
+    ThermoelasticMaterialAtTemperature,
+)
 
 __all__ = [
     "BilinearIsotropicHardeningMaterial1D",
@@ -45,4 +54,9 @@ __all__ = [
     "NonlinearMaterial",
     "SaintVenantKirchhoff1D",
     "SaintVenantKirchhoff3D",
+    "TemperatureDependentProperty",
+    "ThermalProperty",
+    "ThermoelasticMaterial3D",
+    "ThermoelasticMaterialAtTemperature",
+    "evaluate_thermal_property",
 ]

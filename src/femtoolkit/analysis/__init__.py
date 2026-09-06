@@ -109,6 +109,7 @@ from femtoolkit.analysis.stiffness import (
     truss_element_stiffness_2d,
 )
 from femtoolkit.analysis.system import LinearSystem, build_force_vector, solve
+from femtoolkit.analysis.temperature_field import TemperatureField, thermoelastic_materials_for_mesh
 from femtoolkit.analysis.thermal_load import (
     TemperatureLoad,
     thermal_corrected_strain,
@@ -156,6 +157,7 @@ __all__ = [
     "SinusoidalLoad",
     "StaticLinearAnalysis",
     "StepLoad",
+    "TemperatureField",
     "TemperatureLoad",
     "TimeDependentLoad",
     "TimeDependentNodalLoad",
@@ -211,6 +213,7 @@ __all__ = [
     "thermal_corrected_strain",
     "thermal_corrected_stress",
     "thermal_load_to_nodal_loads",
+    "thermoelastic_materials_for_mesh",
     "truss_element_stiffness_2d",
     "update_velocity_acceleration",
 ]
