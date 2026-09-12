@@ -92,6 +92,61 @@ def edge_shape_functions(xi: float) -> tuple[float, float]:
     return (1.0 - xi) / 2.0, (1.0 + xi) / 2.0
 
 
+def edge_consistent_conductance_matrix(
+    node_a: Sequence[float],
+    node_b: Sequence[float],
+    coefficient: float,
+    thickness: float,
+) -> np.ndarray:
+    """Compute ``coefficient * integral(N^T N) * thickness ds`` along a straight edge.
+
+    A straight 2-node edge has exactly the same linear shape functions as
+    a 2-node bar element, so this integral has the identical closed form
+    as a bar's consistent capacity/mass matrix (Version 20's
+    ``bar_capacity_matrix``), with ``coefficient`` (e.g. a convection
+    coefficient ``h``) in place of a bar's ``rho*c*A/L`` factor:
+
+    .. code-block:: text
+
+        Ke = (coefficient * thickness * L / 6) * [[2, 1], [1, 2]]
+
+    Used for a 2D element's (CST/Q4) convective boundary condition,
+    where the "conductance" analogue of a mass matrix -- ``h`` instead
+    of ``rho*c`` -- appears on the left-hand side of the thermal system
+    (see :mod:`femtoolkit.thermal.thermal_boundary_conditions`).
+
+    Args:
+        node_a: ``(x, y)`` coordinates of the edge's first node, in meters.
+        node_b: ``(x, y)`` coordinates of the edge's second node, in meters.
+        coefficient: The scalar coefficient multiplying the integral.
+            Must be positive.
+        thickness: Element thickness, in meters. Must be positive.
+
+    Returns:
+        A symmetric 2x2 NumPy array.
+
+    Raises:
+        ValidationError: If ``coefficient`` or ``thickness`` is not a
+            positive, finite number.
+        DegenerateElementError: If the edge has (near) zero length.
+    """
+    if not math.isfinite(coefficient) or coefficient <= 0:
+        raise ValidationError(f"coefficient must be positive, got {coefficient}.")
+    if not math.isfinite(thickness) or thickness <= 0:
+        raise ValidationError(f"thickness must be positive, got {thickness}.")
+
+    xa, ya = node_a
+    xb, yb = node_b
+    length = math.hypot(xb - xa, yb - ya)
+    if not math.isfinite(length) or length < MIN_EDGE_LENGTH:
+        raise DegenerateElementError(
+            f"Edge from ({xa},{ya}) to ({xb},{yb}) has length {length}, which is degenerate."
+        )
+
+    factor = coefficient * thickness * length / 6.0
+    return factor * np.array([[2.0, 1.0], [1.0, 2.0]])
+
+
 def edge_equivalent_nodal_force(
     node_a: Sequence[float],
     node_b: Sequence[float],
