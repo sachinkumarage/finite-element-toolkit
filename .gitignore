@@ -22,3 +22,8 @@ dist/
 .vscode/
 .idea/
 .DS_Store
+
+# Generated example outputs (Version 22 post-processing examples)
+examples/post_processing/*.png
+examples/post_processing/*.csv
+examples/post_processing/*.json

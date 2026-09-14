@@ -7,6 +7,7 @@ from numpy.testing import assert_allclose
 from femtoolkit.continuum.stress import von_mises_3d
 from femtoolkit.continuum.tensor import (
     deviatoric_stress,
+    equivalent_strain_from_tensor,
     hydrostatic_stress,
     j2_invariant,
     mean_stress,
@@ -145,3 +146,37 @@ def test_principal_stresses_invariant_under_hydrostatic_shift() -> None:
     shifted_principal = np.array(principal_stresses_3d(shifted))
 
     assert_allclose(shifted_principal, base_principal + shift, rtol=1e-8)
+
+
+def test_equivalent_strain_of_zero_strain_is_zero() -> None:
+    assert equivalent_strain_from_tensor(np.zeros((3, 3))) == pytest.approx(0.0)
+
+
+def test_equivalent_strain_of_uniaxial_incompressible_strain_equals_axial_strain() -> None:
+    """The defining normalization: exx=e0, eyy=ezz=-e0/2 (volume-preserving) gives eps_eq=e0."""
+    e0 = 0.02
+    strain_tensor = voigt_strain_to_tensor([e0, -0.5 * e0, -0.5 * e0, 0.0, 0.0, 0.0])
+    assert equivalent_strain_from_tensor(strain_tensor) == pytest.approx(e0)
+
+
+def test_equivalent_strain_of_pure_shear() -> None:
+    """Pure engineering shear gamma_xy: eps_eq = gamma_xy / sqrt(3)."""
+    gamma_xy = 0.01
+    strain_tensor = voigt_strain_to_tensor([0.0, 0.0, 0.0, gamma_xy, 0.0, 0.0])
+    expected = gamma_xy / 3.0**0.5
+    assert equivalent_strain_from_tensor(strain_tensor) == pytest.approx(expected)
+
+
+def test_equivalent_strain_invariant_under_volumetric_shift() -> None:
+    """Adding a pure volumetric (hydrostatic) strain must not change the equivalent strain."""
+    base = voigt_strain_to_tensor([0.01, -0.004, -0.006, 0.002, -0.001, 0.0005])
+    shifted = base + 0.003 * np.eye(3)
+
+    assert equivalent_strain_from_tensor(shifted) == pytest.approx(
+        equivalent_strain_from_tensor(base), rel=1e-8
+    )
+
+
+def test_equivalent_strain_is_always_non_negative() -> None:
+    strain_tensor = voigt_strain_to_tensor([-0.02, 0.01, 0.005, -0.003, 0.002, -0.001])
+    assert equivalent_strain_from_tensor(strain_tensor) >= 0.0

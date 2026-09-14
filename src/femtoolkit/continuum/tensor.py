@@ -241,3 +241,40 @@ def principal_stresses_3d(stress_tensor: np.ndarray) -> tuple[float, float, floa
     eigenvalues = np.linalg.eigvalsh(stress_tensor)
     sigma_1, sigma_2, sigma_3 = sorted(eigenvalues, reverse=True)
     return float(sigma_1), float(sigma_2), float(sigma_3)
+
+
+def equivalent_strain_from_tensor(strain_tensor: np.ndarray) -> float:
+    """Compute the von Mises equivalent (total) strain from a strain tensor (Version 22).
+
+    .. code-block:: text
+
+        epsilon_eq = sqrt(2/3 * e:e)
+
+    where ``e`` is the *deviatoric* strain tensor (``e = epsilon -
+    mean(epsilon) * I``) and ``e:e`` is the full (Frobenius) double
+    contraction, exactly mirroring :func:`von_mises_stress_from_tensor`'s
+    ``sqrt(3 * J2)`` -- the two differ only in the coefficient (``2/3``
+    here vs. ``3`` there), because the standard equivalent-strain
+    definition is normalized so that a uniaxial strain state
+    (``epsilon_xx = e0``, ``epsilon_yy = epsilon_zz = -e0/2``, the
+    volume-preserving transverse response typical of plastic flow)
+    recovers exactly ``epsilon_eq = e0`` -- verified directly in this
+    module's test suite.
+
+    ``strain_tensor`` must already be a **tensor** (not engineering-shear
+    Voigt) strain -- see :func:`voigt_strain_to_tensor` for the
+    conversion, which correctly halves the engineering shear components
+    before this function ever sees them.
+
+    Args:
+        strain_tensor: A symmetric 3x3 (tensor) strain tensor.
+
+    Returns:
+        The von Mises equivalent strain (always non-negative).
+    """
+    mean_strain = trace(strain_tensor) / 3.0
+    deviatoric_strain = strain_tensor - mean_strain * np.eye(3)
+    contraction = float(np.tensordot(deviatoric_strain, deviatoric_strain))
+    # Mathematically non-negative; the max(..., 0.0) guards only against
+    # floating-point round-off, mirroring von_mises_stress_from_tensor.
+    return math.sqrt(2.0 / 3.0 * max(contraction, 0.0))
