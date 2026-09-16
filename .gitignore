@@ -27,3 +27,8 @@ dist/
 examples/post_processing/*.png
 examples/post_processing/*.csv
 examples/post_processing/*.json
+
+# Generated example outputs (Version 23 visualization examples)
+examples/visualization/*.png
+examples/visualization/*.gif
+examples/visualization/*.vtu

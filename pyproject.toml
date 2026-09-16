@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "femtoolkit"
-version = "22.0.0"
+version = "23.0.0"
 description = "An open-source Python toolkit for finite element analysis, built incrementally from the ground up."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -22,6 +22,7 @@ dependencies = ["numpy>=1.26", "scipy>=1.11", "matplotlib>=3.7"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "ruff>=0.6"]
+viz3d = ["pyvista>=0.43", "imageio>=2.31"]
 
 [project.urls]
 Homepage = "https://github.com/sachinthamadhawa/finite-element-toolkit"

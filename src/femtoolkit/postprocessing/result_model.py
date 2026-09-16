@@ -147,7 +147,9 @@ class MeshTopology:
 
     def node_coordinate_array(self) -> np.ndarray:
         """Return every node's coordinates as an ``(N, 3)`` array, ordered per :attr:`node_ids`."""
-        return np.array([self.node_coordinates[node_id] for node_id in self.node_ids])
+        return np.array(
+            [self.node_coordinates[node_id] for node_id in self.node_ids], dtype=float
+        )
 
 
 @dataclass(frozen=True)
