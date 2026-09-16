@@ -32,3 +32,7 @@ examples/post_processing/*.json
 examples/visualization/*.png
 examples/visualization/*.gif
 examples/visualization/*.vtu
+
+# Generated example outputs (Version 24 GUI workspace demo)
+examples/gui/engineering_workspace_demo/*.png
+examples/gui/engineering_workspace_demo/*.json

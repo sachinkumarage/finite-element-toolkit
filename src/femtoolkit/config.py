@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import logging
 
-__version__: str = "23.0.0"
+__version__: str = "24.0.0"
 """Current version of the Finite Element Toolkit package."""
 
 PACKAGE_NAME: str = "femtoolkit"
