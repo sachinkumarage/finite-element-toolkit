@@ -29,14 +29,44 @@ of these checks is expected to always pass -- this function exists to
 give a clear, direct error on a hand-built or externally loaded (see
 :mod:`femtoolkit.mesh.serialization`) mesh that somehow bypassed those
 guarantees, rather than an obscure failure deep inside the solver.
+
+**Version 25** adds a second, complementary API alongside this
+fail-fast one: :func:`~femtoolkit.mesh.validation.report.generate_validation_report`
+performs a broader, **non-raising** sweep (duplicate/isolated nodes,
+invalid connectivity, degenerate/duplicate elements, embedded quality
+evaluation) and returns a structured
+:class:`~femtoolkit.mesh.validation.report.MeshValidationReport` rather
+than raising on the first problem -- see that module's docstring.
 """
 
 from __future__ import annotations
 
 import math
 
-from femtoolkit.exceptions import DuplicateNodeCoordinatesError, ValidationError
+from femtoolkit.exceptions import (
+    DuplicateNodeCoordinatesError,
+    InvalidElementConnectivityError,
+    ValidationError,
+)
 from femtoolkit.mesh.mesh import Mesh
+from femtoolkit.mesh.validation.report import (
+    STATUS_ERROR,
+    STATUS_OK,
+    STATUS_WARNING,
+    MeshValidationReport,
+    format_report,
+    generate_validation_report,
+)
+
+__all__ = [
+    "STATUS_ERROR",
+    "STATUS_OK",
+    "STATUS_WARNING",
+    "MeshValidationReport",
+    "format_report",
+    "generate_validation_report",
+    "validate_mesh",
+]
 
 _COORDINATE_TOLERANCE_DECIMALS = 9
 """Number of decimal places used to compare node coordinates for equality.
@@ -86,7 +116,7 @@ def _validate_element_references_and_area(mesh: Mesh) -> None:
     for element in mesh.elements:
         for node in element.nodes:
             if node.id not in node_ids:
-                raise ValidationError(
+                raise InvalidElementConnectivityError(
                     f"Element {element.id} references node {node.id}, which is not "
                     "present in the mesh."
                 )

@@ -71,6 +71,11 @@ class MeshConfig:
         ny: Subdivisions along Y.
         element_type: ``"quad"`` (Q4) or ``"cst"`` (constant-strain triangle).
         thickness: Element thickness, in meters (mechanical analyses only).
+        refinement_passes: How many uniform refinement passes (Version
+            25, :func:`~femtoolkit.mesh.refinement.refine_uniform`) to
+            apply to the generated mesh before it is handed to a
+            solver. ``0`` (the default) reproduces every Version 24
+            project's exact prior behavior unchanged.
     """
 
     width: float = 2.0
@@ -79,6 +84,7 @@ class MeshConfig:
     ny: int = 2
     element_type: str = "quad"
     thickness: float = 0.02
+    refinement_passes: int = 0
 
 
 @dataclass

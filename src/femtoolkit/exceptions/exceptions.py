@@ -200,3 +200,50 @@ class UnsupportedLoadingPathError(FiniteElementToolkitError):
     or reverse the loading direction raises this exception rather than
     silently returning a physically wrong stress.
     """
+
+
+class InvalidElementConnectivityError(ValidationError):
+    """Raised when an element's node connectivity is structurally invalid.
+
+    Covers cases :class:`~femtoolkit.mesh.mesh.Mesh` itself cannot catch
+    at construction time -- for example a mesh reconstructed from
+    external data (see :mod:`femtoolkit.mesh.validation`) whose element
+    references a node ID absent from that same data, or lists fewer
+    node references than its element type requires. A
+    :class:`ValidationError` specialization, mirroring
+    :class:`DegenerateElementError`'s relationship to it.
+    """
+
+
+class InvalidMeshError(ValidationError):
+    """Raised when a whole mesh fails a structural or geometric validity check.
+
+    Used by :mod:`femtoolkit.mesh.validation` for mesh-wide problems that
+    are not localized to a single element or node -- for example
+    attempting an operation (refinement, quality evaluation) on a mesh
+    whose validation report status is ``"ERROR"``.
+    """
+
+
+class UnsupportedRefinementError(ValidationError):
+    """Raised when mesh refinement is requested for an element type with no
+    reliable refinement rule implemented.
+
+    :mod:`femtoolkit.mesh.refinement` only refines
+    :class:`~femtoolkit.mesh.cst_element.CSTElement2D` and
+    :class:`~femtoolkit.mesh.quad_element.QuadElement2D` elements, for
+    which a mathematically well-defined uniform subdivision rule exists
+    (edge-midpoint quadrisection). TET4/HEX8 and 1D elements are not yet
+    supported -- see the module docstring for why.
+    """
+
+
+class UnsupportedQualityMetricError(ValidationError):
+    """Raised when a shape-quality metric is requested for an element type
+    with no mathematically meaningful definition for it.
+
+    For example, a Jacobian-based quality metric has no meaning for a
+    :class:`~femtoolkit.mesh.bar_element.BarElement` (a 1D line has no
+    isoparametric area/volume mapping), and :mod:`femtoolkit.mesh.quality`
+    raises this rather than fabricating a number.
+    """

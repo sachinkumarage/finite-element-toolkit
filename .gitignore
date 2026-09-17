@@ -36,3 +36,6 @@ examples/visualization/*.vtu
 # Generated example outputs (Version 24 GUI workspace demo)
 examples/gui/engineering_workspace_demo/*.png
 examples/gui/engineering_workspace_demo/*.json
+
+# Generated example outputs (Version 25 meshing examples)
+examples/meshing/*.png

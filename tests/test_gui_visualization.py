@@ -1,4 +1,6 @@
-"""Tests for femtoolkit.gui.visualization (Version 23 3D integration glue)."""
+"""Tests for femtoolkit.gui.visualization (Version 23 3D integration glue,
+extended in Version 25 for mesh-quality visualization).
+"""
 
 import pytest
 
@@ -8,8 +10,12 @@ from femtoolkit.exceptions import ValidationError
 from femtoolkit.gui.visualization import (
     available_scalar_fields,
     is_pyvista_available,
+    render_mesh_quality_screenshot,
     render_result_screenshot,
 )
+from femtoolkit.materials import LinearElastic2D
+from femtoolkit.mesh.generator import create_quad_mesh
+from femtoolkit.mesh.quality import QualityEvaluator
 
 
 def _run_mechanical():
@@ -27,6 +33,11 @@ def _run_mechanical():
     ]
     project.loads = [LoadConfig(region="right", dof="Y", magnitude=-500.0)]
     return SimulationService().run(project).simulation
+
+
+def _quad_mesh():
+    material = LinearElastic2D(youngs_modulus=200e9, poisson_ratio=0.3, formulation="plane_stress")
+    return create_quad_mesh(width=2.0, height=0.4, nx=4, ny=2, material=material, thickness=0.02)
 
 
 def test_is_pyvista_available_returns_bool() -> None:
@@ -78,3 +89,46 @@ def test_render_result_screenshot_invalid_field_raises(tmp_path) -> None:
 
     with pytest.raises(ValidationError):
         render_result_screenshot(simulation, output_path, scalar_field="does_not_exist")
+
+
+@pytest.mark.skipif(not is_pyvista_available(), reason="PyVista (viz3d extra) not installed")
+def test_render_mesh_quality_screenshot_creates_file(tmp_path) -> None:
+    mesh = _quad_mesh()
+    report = QualityEvaluator().evaluate(mesh)
+    output_path = tmp_path / "quality.png"
+
+    result_path = render_mesh_quality_screenshot(mesh, report, output_path, metric="quality")
+
+    assert result_path == output_path
+    assert output_path.exists()
+    assert output_path.stat().st_size > 0
+
+
+@pytest.mark.skipif(not is_pyvista_available(), reason="PyVista (viz3d extra) not installed")
+def test_render_mesh_quality_screenshot_aspect_ratio_metric(tmp_path) -> None:
+    mesh = _quad_mesh()
+    report = QualityEvaluator().evaluate(mesh)
+    output_path = tmp_path / "aspect_ratio.png"
+
+    render_mesh_quality_screenshot(mesh, report, output_path, metric="aspect_ratio")
+    assert output_path.exists()
+
+
+@pytest.mark.skipif(not is_pyvista_available(), reason="PyVista (viz3d extra) not installed")
+def test_render_mesh_quality_screenshot_invalid_metric_raises(tmp_path) -> None:
+    mesh = _quad_mesh()
+    report = QualityEvaluator().evaluate(mesh)
+    output_path = tmp_path / "invalid.png"
+
+    with pytest.raises(ValueError):
+        render_mesh_quality_screenshot(mesh, report, output_path, metric="does_not_exist")
+
+
+@pytest.mark.skipif(not is_pyvista_available(), reason="PyVista (viz3d extra) not installed")
+def test_render_mesh_quality_screenshot_invalid_camera_view_raises(tmp_path) -> None:
+    mesh = _quad_mesh()
+    report = QualityEvaluator().evaluate(mesh)
+    output_path = tmp_path / "invalid_camera.png"
+
+    with pytest.raises(ValueError):
+        render_mesh_quality_screenshot(mesh, report, output_path, camera_view="does_not_exist")

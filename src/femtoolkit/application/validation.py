@@ -117,6 +117,8 @@ def validate_mesh(project: Project) -> list[str]:
         not math.isfinite(mesh.thickness) or mesh.thickness <= 0
     ):
         errors.append("Element thickness must be positive for a mechanical analysis.")
+    if mesh.refinement_passes < 0:
+        errors.append("Mesh refinement_passes must not be negative.")
 
     return errors
 

@@ -33,6 +33,7 @@ from femtoolkit.materials import LinearElastic2D
 from femtoolkit.mesh.generator import create_quad_mesh, create_triangular_mesh
 from femtoolkit.mesh.mesh import Mesh
 from femtoolkit.mesh.quality import MeshQualitySummary, compute_mesh_quality_summary
+from femtoolkit.mesh.refinement import refine_uniform
 from femtoolkit.thermal import PrescribedHeatFlux, PrescribedTemperature, ThermalMaterial
 
 _MECHANICAL_DOF = {"X": TranslationDOF.X, "Y": TranslationDOF.Y}
@@ -78,6 +79,14 @@ class ModelService:
         examples have used since Version 20) -- the real thermal
         material is attached separately by :meth:`build_thermal_materials`.
 
+        If ``project.mesh.refinement_passes`` is positive (Version 25),
+        the generated mesh is then uniformly refined that many times via
+        :func:`~femtoolkit.mesh.refinement.refine_uniform` before being
+        returned -- this is how a mesh accepted on the GUI's Mesh
+        Preparation workflow actually reaches the solver. The default,
+        ``0``, reproduces every Version 24 project's exact prior
+        behavior unchanged.
+
         Args:
             project: The project to build a mesh for.
 
@@ -89,7 +98,7 @@ class ModelService:
         )
         mesh_config = project.mesh
         if mesh_config.element_type == "quad":
-            return create_quad_mesh(
+            mesh = create_quad_mesh(
                 width=mesh_config.width,
                 height=mesh_config.height,
                 nx=mesh_config.nx,
@@ -97,8 +106,8 @@ class ModelService:
                 material=geometry_material,
                 thickness=mesh_config.thickness,
             )
-        if mesh_config.element_type == "cst":
-            return create_triangular_mesh(
+        elif mesh_config.element_type == "cst":
+            mesh = create_triangular_mesh(
                 width=mesh_config.width,
                 height=mesh_config.height,
                 nx=mesh_config.nx,
@@ -106,7 +115,12 @@ class ModelService:
                 material=geometry_material,
                 thickness=mesh_config.thickness,
             )
-        raise ValidationError(f"Unknown mesh element_type {mesh_config.element_type!r}.")
+        else:
+            raise ValidationError(f"Unknown mesh element_type {mesh_config.element_type!r}.")
+
+        for _ in range(mesh_config.refinement_passes):
+            mesh = refine_uniform(mesh)
+        return mesh
 
     def mesh_summary(self, mesh: Mesh) -> MeshSummary:
         """Summarize a generated mesh's size, type, and shape quality."""

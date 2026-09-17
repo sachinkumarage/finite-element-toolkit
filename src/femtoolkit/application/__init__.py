@@ -34,6 +34,7 @@ from femtoolkit.application.materials_catalog import (
     get_material_preset,
     material_options,
 )
+from femtoolkit.application.mesh_preparation_service import MeshPreparationService
 from femtoolkit.application.model_service import MeshSummary, ModelService
 from femtoolkit.application.project import (
     BoundaryConditionConfig,
@@ -67,6 +68,7 @@ __all__ = [
     "LoadConfig",
     "MaterialConfig",
     "MeshConfig",
+    "MeshPreparationService",
     "MeshSummary",
     "ModelService",
     "Project",
