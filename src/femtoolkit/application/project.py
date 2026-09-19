@@ -129,20 +129,24 @@ class LoadConfig:
 class SolverConfig:
     """Solver settings exposed to the user.
 
-    Only the settings meaningful to this version's supported analysis
-    types are exposed; a future nonlinear/transient GUI workflow would
-    extend this, not replace it.
-
     Attributes:
-        tolerance: Convergence tolerance for an iterative/nonlinear
-            solve (reserved for a future nonlinear GUI workflow --
-            every analysis type available in this version solves
-            directly and ignores it).
-        max_iterations: Maximum solver iterations (same caveat).
+        matrix_type: ``"dense"`` or ``"sparse"`` (Version 26) -- which
+            matrix representation the global stiffness/conductivity
+            matrix is assembled in.
+        solver_type: ``"direct"`` or ``"conjugate_gradient"`` (Version
+            26). ``"conjugate_gradient"`` requires ``matrix_type ==
+            "sparse"``; see
+            :func:`~femtoolkit.application.model_service.ModelService.build_solver`.
+        tolerance: Convergence tolerance, used only by
+            ``solver_type == "conjugate_gradient"``.
+        max_iterations: Maximum solver iterations, used only by
+            ``solver_type == "conjugate_gradient"``.
     """
 
+    matrix_type: str = "dense"
+    solver_type: str = "direct"
     tolerance: float = 1e-6
-    max_iterations: int = 25
+    max_iterations: int = 1000
 
 
 @dataclass

@@ -113,3 +113,76 @@ def test_run_unavailable_analysis_type_is_invalid() -> None:
 
     assert result.status == RUN_STATUS_INVALID
     assert any("not yet available" in error for error in result.errors)
+
+
+def test_run_default_solver_has_no_diagnostics() -> None:
+    result = SimulationService().run(_mechanical_project())
+    assert result.solver_diagnostics is None
+
+
+def test_run_sparse_direct_populates_diagnostics() -> None:
+    project = _mechanical_project()
+    project.solver.matrix_type = "sparse"
+    project.solver.solver_type = "direct"
+
+    result = SimulationService().run(project)
+
+    assert result.succeeded
+    assert result.solver_diagnostics is not None
+    assert result.solver_diagnostics.solver_name == "Sparse Direct"
+    assert result.solver_diagnostics.converged
+
+
+def test_run_conjugate_gradient_populates_diagnostics() -> None:
+    project = _mechanical_project()
+    project.solver.matrix_type = "sparse"
+    project.solver.solver_type = "conjugate_gradient"
+    project.solver.tolerance = 1e-10
+    project.solver.max_iterations = 1000
+
+    result = SimulationService().run(project)
+
+    assert result.succeeded
+    assert result.solver_diagnostics is not None
+    assert result.solver_diagnostics.solver_name == "Conjugate Gradient"
+    assert result.solver_diagnostics.iterations is not None
+
+
+def test_run_sparse_matches_dense_summary() -> None:
+    dense_result = SimulationService().run(_mechanical_project())
+
+    sparse_project = _mechanical_project()
+    sparse_project.solver.matrix_type = "sparse"
+    sparse_project.solver.solver_type = "direct"
+    sparse_result = SimulationService().run(sparse_project)
+
+    assert dense_result.summary.maximum_displacement == pytest.approx(
+        sparse_result.summary.maximum_displacement, rel=1e-6
+    )
+    assert dense_result.summary.maximum_von_mises_stress == pytest.approx(
+        sparse_result.summary.maximum_von_mises_stress, rel=1e-6
+    )
+
+
+def test_run_invalid_solver_combo_is_invalid() -> None:
+    project = _mechanical_project()
+    project.solver.matrix_type = "dense"
+    project.solver.solver_type = "conjugate_gradient"
+
+    result = SimulationService().run(project)
+
+    assert result.status == RUN_STATUS_INVALID
+    assert any("Conjugate Gradient" in error for error in result.errors)
+
+
+def test_run_thermal_sparse_matches_dense_summary() -> None:
+    dense_result = SimulationService().run(_thermal_project())
+
+    sparse_project = _thermal_project()
+    sparse_project.solver.matrix_type = "sparse"
+    sparse_project.solver.solver_type = "direct"
+    sparse_result = SimulationService().run(sparse_project)
+
+    assert dense_result.summary.maximum_temperature == pytest.approx(
+        sparse_result.summary.maximum_temperature, rel=1e-6
+    )

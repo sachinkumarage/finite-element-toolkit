@@ -92,6 +92,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 import numpy as np
 
@@ -104,9 +105,14 @@ from femtoolkit.analysis.boundary_conditions import BoundaryCondition
 from femtoolkit.analysis.convergence import residual_norm_ratio
 from femtoolkit.analysis.dof import DOFMap, TranslationDOF
 from femtoolkit.analysis.dynamic_loads import TimeDependentLoad
+from femtoolkit.analysis.sparse_assembly import assemble_global_stiffness_sparse
 from femtoolkit.analysis.system import LinearSystem, solve
 from femtoolkit.exceptions import NonlinearConvergenceError, SingularSystemError, ValidationError
 from femtoolkit.mesh.mesh import Mesh
+
+if TYPE_CHECKING:
+    from femtoolkit.solvers.base import LinearSolver
+    from femtoolkit.solvers.results import SolverResult
 from femtoolkit.thermal.thermal_boundary_conditions import (
     STEFAN_BOLTZMANN_CONSTANT,
     ConvectionBoundaryCondition,
@@ -526,6 +532,19 @@ class SteadyStateThermalAnalysis:
             docstring).
         nonlinear_tolerance: Newton-Raphson residual-ratio convergence
             tolerance, used only in the nonlinear case.
+        solver: A :class:`~femtoolkit.solvers.base.LinearSolver`
+            strategy (Version 26), used only for the *linear* case
+            (constant-coefficient convection or no convection/radiation
+            at all -- the nonlinear Newton-Raphson path is unaffected).
+            ``None`` (the default) reproduces every prior version's
+            exact behavior: dense assembly and
+            :func:`~femtoolkit.analysis.system.solve`. See
+            :attr:`~femtoolkit.analysis.static_linear.StaticLinearAnalysis.__init__`'s
+            ``solver`` parameter for the full behavior this mirrors.
+        last_solver_result: The full diagnostic
+            :class:`~femtoolkit.solvers.results.SolverResult` from the
+            most recent :meth:`solve` call, if ``solver`` was given and
+            the linear (non-nonlinear) path was taken; ``None`` otherwise.
 
     Raises:
         ValidationError: If ``materials`` is missing an entry for any
@@ -544,6 +563,8 @@ class SteadyStateThermalAnalysis:
     evaluation_temperature: float = 293.15
     nonlinear_max_iterations: int = _DEFAULT_NONLINEAR_MAX_ITERATIONS
     nonlinear_tolerance: float = _DEFAULT_NONLINEAR_TOLERANCE
+    solver: LinearSolver | None = None
+    last_solver_result: SolverResult | None = field(default=None, init=False)
     _boundary_conditions: list[PrescribedTemperature] = field(default_factory=list, init=False)
     _heat_fluxes: list[PrescribedHeatFlux] = field(default_factory=list, init=False)
     _thermal_loads: list[ThermalLoad] = field(default_factory=list, init=False)
@@ -651,7 +672,11 @@ class SteadyStateThermalAnalysis:
             conv_stiffness, conv_loads = _linear_convection_contributions(
                 self.mesh, self._convections, time=0.0
             )
-            k_t = assemble_global_stiffness(dof_map, [*conductivity_contributions, *conv_stiffness])
+            all_contributions = [*conductivity_contributions, *conv_stiffness]
+            if self.solver is None or self.solver.MATRIX_TYPE == "dense":
+                k_t = assemble_global_stiffness(dof_map, all_contributions)
+            else:
+                k_t = assemble_global_stiffness_sparse(dof_map, all_contributions)
             f_t = build_thermal_force_vector(
                 dof_map, [*self._thermal_loads, *flux_loads, *conv_loads]
             )
@@ -664,7 +689,13 @@ class SteadyStateThermalAnalysis:
                     for bc in boundary_conditions
                 ],
             )
-            temperatures = solve(system)
+            if self.solver is None:
+                temperatures = solve(system)
+                self.last_solver_result = None
+            else:
+                solver_result = self.solver.solve(system)
+                temperatures = solver_result.solution
+                self.last_solver_result = solver_result
 
         return SteadyStateThermalResult(
             dof_map=dof_map,

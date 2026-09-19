@@ -85,6 +85,29 @@ class ElementForceContribution(NamedTuple):
     force: np.ndarray
 
 
+def _validate_contribution_shape(
+    dof_keys: tuple[tuple[int, int], ...], local_matrix: np.ndarray, matrix_label: str
+) -> None:
+    """Check that a contribution's local matrix shape matches its ``dof_keys`` count.
+
+    Shared between the dense assembler (:func:`_assemble_global_matrix`)
+    and the sparse assembler
+    (:func:`~femtoolkit.analysis.sparse_assembly._assemble_global_sparse_matrix`,
+    Version 26), so both report the exact same error for the exact same
+    malformed contribution.
+
+    Raises:
+        ValidationError: If ``local_matrix.shape`` does not equal
+            ``(len(dof_keys), len(dof_keys))``.
+    """
+    expected_shape = (len(dof_keys), len(dof_keys))
+    if local_matrix.shape != expected_shape:
+        raise ValidationError(
+            f"Element {matrix_label} matrix must have shape {expected_shape} to "
+            f"match {len(dof_keys)} dof_keys, got {local_matrix.shape}."
+        )
+
+
 def _assemble_global_matrix(
     dof_map: DOFMap,
     contributions: Sequence[tuple[tuple[tuple[int, int], ...], np.ndarray]],
@@ -99,12 +122,7 @@ def _assemble_global_matrix(
     global_matrix = np.zeros((dof_map.total_dofs, dof_map.total_dofs))
 
     for dof_keys, local_matrix in contributions:
-        expected_shape = (len(dof_keys), len(dof_keys))
-        if local_matrix.shape != expected_shape:
-            raise ValidationError(
-                f"Element {matrix_label} matrix must have shape {expected_shape} to "
-                f"match {len(dof_keys)} dof_keys, got {local_matrix.shape}."
-            )
+        _validate_contribution_shape(dof_keys, local_matrix, matrix_label)
 
         global_indices = [dof_map.global_index(node_id, dof) for node_id, dof in dof_keys]
 

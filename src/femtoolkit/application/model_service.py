@@ -21,6 +21,7 @@ never become the FEA engine.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from femtoolkit.analysis.boundary_conditions import BoundaryCondition
 from femtoolkit.analysis.dof import TranslationDOF
@@ -34,6 +35,10 @@ from femtoolkit.mesh.generator import create_quad_mesh, create_triangular_mesh
 from femtoolkit.mesh.mesh import Mesh
 from femtoolkit.mesh.quality import MeshQualitySummary, compute_mesh_quality_summary
 from femtoolkit.mesh.refinement import refine_uniform
+from femtoolkit.solvers import create_solver
+
+if TYPE_CHECKING:
+    from femtoolkit.solvers.base import LinearSolver
 from femtoolkit.thermal import PrescribedHeatFlux, PrescribedTemperature, ThermalMaterial
 
 _MECHANICAL_DOF = {"X": TranslationDOF.X, "Y": TranslationDOF.Y}
@@ -131,6 +136,38 @@ class ModelService:
             dimension="2D",
             element_type=element_type,
             quality=compute_mesh_quality_summary(mesh),
+        )
+
+    def build_solver(self, project: Project) -> LinearSolver | None:
+        """Build the Version 26 solver strategy described by ``project.solver``.
+
+        Args:
+            project: The project whose ``solver`` configuration to
+                build a solver for.
+
+        Returns:
+            ``None`` for the default ``matrix_type="dense"``,
+            ``solver_type="direct"`` combination -- meaning "use every
+            prior version's exact dense-solve behavior, unchanged"
+            (see :class:`~femtoolkit.analysis.static_linear.StaticLinearAnalysis`'s
+            ``solver`` parameter) -- otherwise the matching
+            :class:`~femtoolkit.solvers.base.LinearSolver` instance
+            from :func:`femtoolkit.solvers.create_solver`.
+
+        Raises:
+            UnsupportedSolverError: If ``project.solver`` names an
+                unsupported matrix-type/solver-type combination.
+            InvalidSolverConfigurationError: If ``project.solver.tolerance``/
+                ``max_iterations`` is invalid.
+        """
+        solver_config = project.solver
+        if solver_config.matrix_type == "dense" and solver_config.solver_type == "direct":
+            return None
+        return create_solver(
+            matrix_type=solver_config.matrix_type,
+            solver_type=solver_config.solver_type,
+            tolerance=solver_config.tolerance,
+            max_iterations=solver_config.max_iterations,
         )
 
     def build_thermal_materials(self, project: Project, mesh: Mesh) -> dict[int, ThermalMaterial]:

@@ -163,14 +163,29 @@ def validate_loads(project: Project) -> list[str]:
     return errors
 
 
+_MATRIX_TYPES = ("dense", "sparse")
+_SOLVER_TYPES = ("direct", "conjugate_gradient")
+
+
 def validate_solver(project: Project) -> list[str]:
-    """Check the solver settings."""
+    """Check the solver settings, including the Version 26 matrix/solver-type selection."""
     errors: list[str] = []
     solver = project.solver
     if not math.isfinite(solver.tolerance) or solver.tolerance <= 0:
         errors.append("Solver tolerance must be positive.")
     if solver.max_iterations < 1:
         errors.append("Solver max_iterations must be at least 1.")
+
+    if solver.matrix_type not in _MATRIX_TYPES:
+        errors.append(f"Solver matrix_type must be one of {_MATRIX_TYPES}.")
+    if solver.solver_type not in _SOLVER_TYPES:
+        errors.append(f"Solver solver_type must be one of {_SOLVER_TYPES}.")
+    if solver.matrix_type == "dense" and solver.solver_type == "conjugate_gradient":
+        errors.append(
+            "Conjugate Gradient requires a sparse matrix representation; "
+            "set matrix_type to 'sparse' or solver_type to 'direct'."
+        )
+
     return errors
 
 

@@ -6,7 +6,12 @@ from femtoolkit.analysis.boundary_conditions import BoundaryCondition
 from femtoolkit.analysis.loads import NodalLoad
 from femtoolkit.application.model_service import ModelService
 from femtoolkit.application.project import BoundaryConditionConfig, LoadConfig, Project
-from femtoolkit.exceptions import ValidationError
+from femtoolkit.exceptions import (
+    InvalidSolverConfigurationError,
+    UnsupportedSolverError,
+    ValidationError,
+)
+from femtoolkit.solvers import ConjugateGradientSolver, SparseDirectSolver
 from femtoolkit.thermal import PrescribedHeatFlux, PrescribedTemperature
 
 
@@ -148,3 +153,58 @@ def test_build_loads_empty_when_no_loads_configured() -> None:
     service = ModelService()
     mesh = service.build_mesh(project)
     assert service.build_loads(project, mesh) == []
+
+
+def test_build_solver_default_returns_none() -> None:
+    project = _mechanical_project()
+    service = ModelService()
+    assert service.build_solver(project) is None
+
+
+def test_build_solver_sparse_direct() -> None:
+    project = _mechanical_project()
+    project.solver.matrix_type = "sparse"
+    project.solver.solver_type = "direct"
+    service = ModelService()
+    solver = service.build_solver(project)
+    assert isinstance(solver, SparseDirectSolver)
+
+
+def test_build_solver_conjugate_gradient() -> None:
+    project = _mechanical_project()
+    project.solver.matrix_type = "sparse"
+    project.solver.solver_type = "conjugate_gradient"
+    project.solver.tolerance = 1e-9
+    project.solver.max_iterations = 200
+    service = ModelService()
+    solver = service.build_solver(project)
+    assert isinstance(solver, ConjugateGradientSolver)
+    assert solver.tolerance == pytest.approx(1e-9)
+    assert solver.max_iterations == 200
+
+
+def test_build_solver_dense_direct_explicit() -> None:
+    project = _mechanical_project()
+    project.solver.matrix_type = "dense"
+    project.solver.solver_type = "direct"
+    service = ModelService()
+    assert service.build_solver(project) is None
+
+
+def test_build_solver_rejects_dense_conjugate_gradient() -> None:
+    project = _mechanical_project()
+    project.solver.matrix_type = "dense"
+    project.solver.solver_type = "conjugate_gradient"
+    service = ModelService()
+    with pytest.raises(UnsupportedSolverError):
+        service.build_solver(project)
+
+
+def test_build_solver_rejects_invalid_tolerance() -> None:
+    project = _mechanical_project()
+    project.solver.matrix_type = "sparse"
+    project.solver.solver_type = "conjugate_gradient"
+    project.solver.tolerance = -1.0
+    service = ModelService()
+    with pytest.raises(InvalidSolverConfigurationError):
+        service.build_solver(project)

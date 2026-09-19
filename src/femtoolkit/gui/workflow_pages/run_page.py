@@ -1,4 +1,6 @@
-"""Run page: validate and execute the simulation (Version 24, spec section 12)."""
+"""Run page: validate and execute the simulation (Version 24 spec section 12,
+extended Version 26 spec section 24 with post-solve solver diagnostics).
+"""
 
 from __future__ import annotations
 
@@ -41,3 +43,29 @@ def render(state: AppState) -> None:
     if state.has_results():
         st.subheader("4. Results Available")
         st.info("Open the Results or Visualization page to inspect the solved fields.")
+        _render_analysis_complete(state)
+
+
+def _render_analysis_complete(state: AppState) -> None:
+    st.success("Analysis Complete")
+    diagnostics = state.last_run.solver_diagnostics
+    if diagnostics is None:
+        st.caption("Solver: Dense Direct (default) -- no diagnostics object for this path.")
+        return
+
+    col_solver, col_dofs, col_time, col_status = st.columns(4)
+    col_solver.metric("Solver", diagnostics.solver_name)
+    col_dofs.metric("DOFs", diagnostics.diagnostics.get("dofs", "-"))
+    col_time.metric("Solve Time (s)", f"{diagnostics.solve_time:.4f}")
+    col_status.metric("Status", "Converged" if diagnostics.converged else "Not Converged")
+
+    if "nnz" in diagnostics.diagnostics:
+        st.caption(
+            f"Non-zero entries: {diagnostics.diagnostics['nnz']}, "
+            f"density: {diagnostics.diagnostics.get('density', 0.0):.4f}"
+        )
+    if diagnostics.iterations is not None:
+        st.caption(
+            f"Iterations: {diagnostics.iterations}, "
+            f"final residual: {diagnostics.residual_norm:.3e}"
+        )

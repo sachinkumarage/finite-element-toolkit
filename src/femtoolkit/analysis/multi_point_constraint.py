@@ -45,6 +45,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 import numpy as np
+import scipy.sparse as sp
 
 from femtoolkit.analysis.dof import DOFMap, validate_dof
 from femtoolkit.exceptions import ValidationError
@@ -146,3 +147,57 @@ def apply_multi_point_constraints(
         augmented[index_b, index_a] -= penalty
 
     return augmented
+
+
+def apply_multi_point_constraints_sparse(
+    dof_map: DOFMap,
+    stiffness: sp.csr_matrix,
+    constraints: Sequence[MultiPointConstraint],
+) -> sp.csr_matrix:
+    """Sparse analogue of :func:`apply_multi_point_constraints` (Version 26).
+
+    Identical penalty-method formula and identical penalty-stiffness
+    scaling (relative to the assembled matrix's own largest diagonal
+    magnitude) as the dense function -- only the storage representation
+    differs. Since a penalty term touches a fixed, small number of
+    entries per constraint regardless of matrix size, the augmentation
+    is done via :class:`scipy.sparse.lil_matrix` (efficient for
+    incremental single-entry updates) and converted back to CSR, keeping
+    the same "assemble once, convert once" discipline
+    :mod:`femtoolkit.analysis.sparse_assembly` uses.
+
+    Args:
+        dof_map: DOF map defining the global DOF numbering ``stiffness``
+            is expressed in.
+        stiffness: The assembled global sparse stiffness matrix, before
+            boundary conditions are applied.
+        constraints: Multi-point constraints to enforce.
+
+    Returns:
+        A new :class:`scipy.sparse.csr_matrix` (``stiffness`` is not
+        modified in place) with penalty terms added for every
+        constraint. Identical to ``stiffness`` (same object) if
+        ``constraints`` is empty.
+
+    Raises:
+        EntityNotFoundError: If a constraint references a node not in
+            ``dof_map``.
+        ValidationError: If a constraint's ``dof`` is not active for
+            ``dof_map``.
+    """
+    if not constraints:
+        return stiffness
+
+    max_diagonal = float(np.max(np.abs(stiffness.diagonal())))
+    penalty = PENALTY_FACTOR * (max_diagonal if max_diagonal > 0.0 else 1.0)
+
+    augmented = stiffness.tolil(copy=True)
+    for constraint in constraints:
+        index_a = dof_map.global_index(constraint.node_id_a, constraint.dof)
+        index_b = dof_map.global_index(constraint.node_id_b, constraint.dof)
+        augmented[index_a, index_a] += penalty
+        augmented[index_b, index_b] += penalty
+        augmented[index_a, index_b] -= penalty
+        augmented[index_b, index_a] -= penalty
+
+    return augmented.tocsr()

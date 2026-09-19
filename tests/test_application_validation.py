@@ -186,6 +186,40 @@ def test_invalid_solver_zero_max_iterations() -> None:
     assert any("max_iterations" in error for error in errors)
 
 
+def test_valid_solver_matrix_and_solver_types() -> None:
+    project = _valid_mechanical_project()
+    for matrix_type, solver_type in [
+        ("dense", "direct"),
+        ("sparse", "direct"),
+        ("sparse", "conjugate_gradient"),
+    ]:
+        project.solver.matrix_type = matrix_type
+        project.solver.solver_type = solver_type
+        assert validate_solver(project) == []
+
+
+def test_invalid_solver_unknown_matrix_type() -> None:
+    project = _valid_mechanical_project()
+    project.solver.matrix_type = "bogus"
+    errors = validate_solver(project)
+    assert any("matrix_type" in error for error in errors)
+
+
+def test_invalid_solver_unknown_solver_type() -> None:
+    project = _valid_mechanical_project()
+    project.solver.solver_type = "bogus"
+    errors = validate_solver(project)
+    assert any("solver_type" in error for error in errors)
+
+
+def test_invalid_solver_dense_conjugate_gradient_combo() -> None:
+    project = _valid_mechanical_project()
+    project.solver.matrix_type = "dense"
+    project.solver.solver_type = "conjugate_gradient"
+    errors = validate_solver(project)
+    assert any("Conjugate Gradient" in error for error in errors)
+
+
 def test_validate_project_aggregates_multiple_categories() -> None:
     project = Project(analysis_type="linear_static")
     project.material.youngs_modulus = -1.0

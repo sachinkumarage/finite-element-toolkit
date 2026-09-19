@@ -247,3 +247,46 @@ class UnsupportedQualityMetricError(ValidationError):
     isoparametric area/volume mapping), and :mod:`femtoolkit.mesh.quality`
     raises this rather than fabricating a number.
     """
+
+
+class SolverError(FiniteElementToolkitError):
+    """Base class for errors raised by :mod:`femtoolkit.solvers` (Version 26).
+
+    Catching this exception handles any problem specific to the linear
+    solver infrastructure (dense, sparse direct, or iterative) without
+    needing to know which concrete solver raised it. Does not replace
+    :class:`SingularSystemError`, which stays the toolkit's existing,
+    reused signal for a singular reduced system across every solver
+    implementation.
+    """
+
+
+class SolverConvergenceError(SolverError):
+    """Raised when an iterative linear solver (e.g. Conjugate Gradient) fails
+    to converge within its configured maximum iteration count.
+
+    Distinct from :class:`NonlinearConvergenceError` (a Newton-Raphson
+    load-step failure): this is about one *linear* solve failing to
+    reach its residual tolerance, not a nonlinear equilibrium iteration.
+    """
+
+
+class InvalidSolverConfigurationError(SolverError):
+    """Raised when a solver is configured with invalid or incompatible settings.
+
+    Examples: a non-positive tolerance or maximum-iteration count, or
+    requesting a solver/matrix-representation combination the
+    architecture does not support (e.g. an iterative solver paired with
+    a dense matrix representation in this toolkit's solver-selection
+    mechanism).
+    """
+
+
+class UnsupportedSolverError(SolverError):
+    """Raised when an unknown or unavailable solver is requested by name.
+
+    Used by the solver-selection mechanism
+    (:func:`femtoolkit.solvers.create_solver`) when the requested
+    ``matrix_type``/``solver_type`` combination does not name a
+    supported solver.
+    """

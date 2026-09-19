@@ -1,4 +1,4 @@
-"""Validates and runs a project's analysis (Version 24).
+"""Validates and runs a project's analysis (Version 24, solver diagnostics Version 26).
 
 This is the only place in the application layer that calls a solver's
 ``.solve()``. It follows the exact workflow spec section 12 asks for:
@@ -9,12 +9,18 @@ solver unchanged, and wrap the result through the existing Version 22
 post-processing pipeline (:mod:`femtoolkit.postprocessing.adapters`,
 :func:`~femtoolkit.postprocessing.field_calculator.with_derived_fields`)
 -- this module never computes a displacement, stress, or temperature
-itself.
+itself. Since Version 26, ``project.solver`` selects which
+:class:`~femtoolkit.solvers.base.LinearSolver` actually runs (see
+:meth:`~femtoolkit.application.model_service.ModelService.build_solver`);
+the resulting :class:`~femtoolkit.solvers.results.SolverResult`
+diagnostics are attached to :class:`SimulationRunResult` so the GUI can
+display them without this service performing any solving itself.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 from femtoolkit.analysis.static_linear import StaticLinearAnalysis
 from femtoolkit.application.model_service import ModelService
@@ -30,6 +36,9 @@ from femtoolkit.postprocessing import (
     with_derived_fields,
 )
 from femtoolkit.thermal import SteadyStateThermalAnalysis
+
+if TYPE_CHECKING:
+    from femtoolkit.solvers.results import SolverResult
 
 RUN_STATUS_COMPLETED = "completed"
 RUN_STATUS_INVALID = "invalid"
@@ -52,12 +61,20 @@ class SimulationRunResult:
             ``"invalid"`` (one entry per validation failure) and
             ``"failed"`` (one entry describing the solver error);
             empty for ``"completed"``.
+        solver_diagnostics: The
+            :class:`~femtoolkit.solvers.results.SolverResult` from the
+            solver that actually ran, if ``status == "completed"`` and
+            ``project.solver`` selected a non-default (Version 26)
+            solver strategy; ``None`` for the default dense solve
+            (which has no diagnostics object) or when the run did not
+            complete.
     """
 
     status: str
     simulation: SimulationResult | None = None
     summary: EngineeringSummary | None = None
     errors: list[str] = field(default_factory=list)
+    solver_diagnostics: SolverResult | None = None
 
     @property
     def succeeded(self) -> bool:
@@ -85,7 +102,7 @@ class SimulationService:
             return SimulationRunResult(status=RUN_STATUS_INVALID, errors=list(validation.errors))
 
         try:
-            simulation = self._solve(project)
+            simulation, solver_diagnostics = self._solve(project)
         except FiniteElementToolkitError as exc:
             return SimulationRunResult(status=RUN_STATUS_FAILED, errors=[f"Solver error: {exc}"])
         except Exception as exc:  # noqa: BLE001 - never let a GUI crash on an unexpected solver error
@@ -94,32 +111,38 @@ class SimulationService:
             )
 
         return SimulationRunResult(
-            status=RUN_STATUS_COMPLETED, simulation=simulation, summary=summarize(simulation)
+            status=RUN_STATUS_COMPLETED,
+            simulation=simulation,
+            summary=summarize(simulation),
+            solver_diagnostics=solver_diagnostics,
         )
 
-    def _solve(self, project: Project) -> SimulationResult:
+    def _solve(self, project: Project) -> tuple[SimulationResult, SolverResult | None]:
         mesh = self._model_service.build_mesh(project)
         boundary_conditions = self._model_service.build_boundary_conditions(project, mesh)
         loads = self._model_service.build_loads(project, mesh)
+        solver = self._model_service.build_solver(project)
 
         if project.analysis_type == "linear_static":
-            analysis = StaticLinearAnalysis(mesh)
+            analysis = StaticLinearAnalysis(mesh, solver=solver)
             for boundary_condition in boundary_conditions:
                 analysis.add_boundary_condition(boundary_condition)
             for load in loads:
                 analysis.add_load(load)
             raw_result = analysis.solve()
-            return with_derived_fields(from_static_linear(raw_result))
+            simulation = with_derived_fields(from_static_linear(raw_result))
+            return simulation, analysis.last_solver_result
 
         if project.analysis_type == "thermal_steady_state":
             materials = self._model_service.build_thermal_materials(project, mesh)
-            analysis = SteadyStateThermalAnalysis(mesh, materials)
+            analysis = SteadyStateThermalAnalysis(mesh, materials, solver=solver)
             for boundary_condition in boundary_conditions:
                 analysis.add_boundary_condition(boundary_condition)
             for heat_flux in loads:
                 analysis.add_heat_flux(heat_flux)
             raw_result = analysis.solve()
-            return with_derived_fields(from_thermal_steady_state(raw_result))
+            simulation = with_derived_fields(from_thermal_steady_state(raw_result))
+            return simulation, analysis.last_solver_result
 
         raise FiniteElementToolkitError(
             f"Analysis type {project.analysis_type!r} has no execution path in the GUI service "
