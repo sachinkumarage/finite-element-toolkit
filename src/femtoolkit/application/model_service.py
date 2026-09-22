@@ -28,6 +28,7 @@ from femtoolkit.analysis.dof import TranslationDOF
 from femtoolkit.analysis.loads import NodalLoad
 from femtoolkit.application.project import Project
 from femtoolkit.exceptions import ValidationError
+from femtoolkit.execution.config import ExecutionConfig
 from femtoolkit.geometry.point import Point2D
 from femtoolkit.geometry.rectangle import Rectangle
 from femtoolkit.materials import LinearElastic2D
@@ -168,6 +169,36 @@ class ModelService:
             solver_type=solver_config.solver_type,
             tolerance=solver_config.tolerance,
             max_iterations=solver_config.max_iterations,
+        )
+
+    def build_execution_config(self, project: Project) -> ExecutionConfig | None:
+        """Build the Version 27 execution config described by ``project.execution``.
+
+        Args:
+            project: The project whose ``execution`` configuration to
+                build an :class:`~femtoolkit.execution.config.ExecutionConfig`
+                for.
+
+        Returns:
+            ``None`` for the default ``mode="serial"`` setting --
+            meaning "use every prior version's exact serial element
+            computation, unchanged" (see
+            :class:`~femtoolkit.analysis.static_linear.StaticLinearAnalysis`'s
+            ``execution`` parameter) -- otherwise an
+            :class:`~femtoolkit.execution.config.ExecutionConfig` built
+            from ``project.execution``.
+
+        Raises:
+            InvalidExecutionConfigurationError: If ``project.execution``
+                names invalid settings.
+        """
+        execution_config = project.execution
+        if execution_config.mode == "serial":
+            return None
+        return ExecutionConfig(
+            mode=execution_config.mode,
+            workers=execution_config.workers,
+            chunk_size=execution_config.batch_size,
         )
 
     def build_thermal_materials(self, project: Project, mesh: Mesh) -> dict[int, ThermalMaterial]:

@@ -186,3 +186,61 @@ def test_run_thermal_sparse_matches_dense_summary() -> None:
     assert dense_result.summary.maximum_temperature == pytest.approx(
         sparse_result.summary.maximum_temperature, rel=1e-6
     )
+
+
+def test_run_default_execution_populates_serial_performance_report() -> None:
+    result = SimulationService().run(_mechanical_project())
+
+    assert result.succeeded
+    assert result.performance_report is not None
+    assert result.performance_report.execution_mode == "serial"
+    assert result.performance_report.total_time > 0.0
+
+
+def test_run_parallel_execution_populates_performance_report() -> None:
+    project = _mechanical_project()
+    project.execution.mode = "parallel"
+    project.execution.workers = 2
+
+    result = SimulationService().run(project)
+
+    assert result.succeeded
+    assert result.performance_report is not None
+    assert result.performance_report.execution_mode == "parallel"
+    assert result.performance_report.workers == 2
+
+
+def test_run_parallel_execution_matches_serial_summary() -> None:
+    serial_result = SimulationService().run(_mechanical_project())
+
+    parallel_project = _mechanical_project()
+    parallel_project.execution.mode = "parallel"
+    parallel_project.execution.workers = 2
+    parallel_result = SimulationService().run(parallel_project)
+
+    assert serial_result.summary.maximum_displacement == pytest.approx(
+        parallel_result.summary.maximum_displacement, rel=1e-9
+    )
+
+
+def test_run_thermal_parallel_execution_matches_serial_summary() -> None:
+    serial_result = SimulationService().run(_thermal_project())
+
+    parallel_project = _thermal_project()
+    parallel_project.execution.mode = "parallel"
+    parallel_project.execution.workers = 2
+    parallel_result = SimulationService().run(parallel_project)
+
+    assert serial_result.summary.maximum_temperature == pytest.approx(
+        parallel_result.summary.maximum_temperature, rel=1e-9
+    )
+
+
+def test_run_invalid_execution_mode_is_invalid() -> None:
+    project = _mechanical_project()
+    project.execution.mode = "bogus"
+
+    result = SimulationService().run(project)
+
+    assert result.status == RUN_STATUS_INVALID
+    assert any("mode" in error for error in result.errors)

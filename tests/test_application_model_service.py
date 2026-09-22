@@ -7,10 +7,12 @@ from femtoolkit.analysis.loads import NodalLoad
 from femtoolkit.application.model_service import ModelService
 from femtoolkit.application.project import BoundaryConditionConfig, LoadConfig, Project
 from femtoolkit.exceptions import (
+    InvalidExecutionConfigurationError,
     InvalidSolverConfigurationError,
     UnsupportedSolverError,
     ValidationError,
 )
+from femtoolkit.execution.config import ExecutionConfig
 from femtoolkit.solvers import ConjugateGradientSolver, SparseDirectSolver
 from femtoolkit.thermal import PrescribedHeatFlux, PrescribedTemperature
 
@@ -208,3 +210,38 @@ def test_build_solver_rejects_invalid_tolerance() -> None:
     service = ModelService()
     with pytest.raises(InvalidSolverConfigurationError):
         service.build_solver(project)
+
+
+def test_build_execution_config_default_returns_none() -> None:
+    project = _mechanical_project()
+    service = ModelService()
+    assert service.build_execution_config(project) is None
+
+
+def test_build_execution_config_serial_explicit_returns_none() -> None:
+    project = _mechanical_project()
+    project.execution.mode = "serial"
+    service = ModelService()
+    assert service.build_execution_config(project) is None
+
+
+def test_build_execution_config_parallel() -> None:
+    project = _mechanical_project()
+    project.execution.mode = "parallel"
+    project.execution.workers = 3
+    project.execution.batch_size = 7
+    service = ModelService()
+    execution = service.build_execution_config(project)
+    assert isinstance(execution, ExecutionConfig)
+    assert execution.mode == "parallel"
+    assert execution.workers == 3
+    assert execution.chunk_size == 7
+
+
+def test_build_execution_config_rejects_invalid_workers() -> None:
+    project = _mechanical_project()
+    project.execution.mode = "parallel"
+    project.execution.workers = -1
+    service = ModelService()
+    with pytest.raises(InvalidExecutionConfigurationError):
+        service.build_execution_config(project)

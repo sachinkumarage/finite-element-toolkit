@@ -4,6 +4,7 @@ from femtoolkit.application.project import BoundaryConditionConfig, LoadConfig, 
 from femtoolkit.application.validation import (
     validate_analysis_type,
     validate_boundary_conditions,
+    validate_execution,
     validate_loads,
     validate_material,
     validate_mesh,
@@ -218,6 +219,43 @@ def test_invalid_solver_dense_conjugate_gradient_combo() -> None:
     project.solver.solver_type = "conjugate_gradient"
     errors = validate_solver(project)
     assert any("Conjugate Gradient" in error for error in errors)
+
+
+def test_valid_execution_settings_serial_and_parallel() -> None:
+    project = _valid_mechanical_project()
+    assert validate_execution(project) == []
+
+    project.execution.mode = "parallel"
+    project.execution.workers = 4
+    project.execution.batch_size = 10
+    assert validate_execution(project) == []
+
+
+def test_invalid_execution_unknown_mode() -> None:
+    project = _valid_mechanical_project()
+    project.execution.mode = "bogus"
+    errors = validate_execution(project)
+    assert any("mode" in error for error in errors)
+
+
+def test_invalid_execution_non_positive_workers() -> None:
+    project = _valid_mechanical_project()
+    project.execution.workers = 0
+    errors = validate_execution(project)
+    assert any("workers" in error for error in errors)
+
+
+def test_invalid_execution_non_positive_batch_size() -> None:
+    project = _valid_mechanical_project()
+    project.execution.batch_size = 0
+    errors = validate_execution(project)
+    assert any("batch_size" in error for error in errors)
+
+
+def test_execution_batch_size_auto_is_valid() -> None:
+    project = _valid_mechanical_project()
+    project.execution.batch_size = "auto"
+    assert validate_execution(project) == []
 
 
 def test_validate_project_aggregates_multiple_categories() -> None:

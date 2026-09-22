@@ -4,6 +4,7 @@ import pytest
 
 from femtoolkit.application.project import (
     BoundaryConditionConfig,
+    ExecutionSettingsConfig,
     LoadConfig,
     MaterialConfig,
     MeshConfig,
@@ -25,6 +26,8 @@ def test_create_project_defaults() -> None:
     assert project.boundary_conditions == []
     assert project.loads == []
     assert isinstance(project.solver, SolverConfig)
+    assert isinstance(project.execution, ExecutionSettingsConfig)
+    assert project.execution.mode == "serial"
 
 
 def test_create_project_blank_name_raises() -> None:
@@ -55,6 +58,7 @@ def test_to_dict_from_dict_round_trip() -> None:
         boundary_conditions=[BoundaryConditionConfig(region="left", dof="X", value=0.0)],
         loads=[LoadConfig(region="right", dof="Y", magnitude=-100.0)],
         solver=SolverConfig(tolerance=1e-5, max_iterations=10),
+        execution=ExecutionSettingsConfig(mode="parallel", workers=4, batch_size=25),
     )
     restored = Project.from_dict(project.to_dict())
 
@@ -65,6 +69,15 @@ def test_to_dict_from_dict_round_trip() -> None:
     assert restored.boundary_conditions == project.boundary_conditions
     assert restored.loads == project.loads
     assert restored.solver == project.solver
+    assert restored.execution == project.execution
+
+
+def test_from_dict_without_execution_key_defaults_to_serial() -> None:
+    """A project saved by Version 26 (before `execution` existed) must still load cleanly."""
+    data = Project().to_dict()
+    del data["execution"]
+    restored = Project.from_dict(data)
+    assert restored.execution == ExecutionSettingsConfig()
 
 
 def test_from_dict_ignores_unknown_keys() -> None:

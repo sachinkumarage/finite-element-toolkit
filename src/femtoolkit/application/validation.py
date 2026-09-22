@@ -189,6 +189,26 @@ def validate_solver(project: Project) -> list[str]:
     return errors
 
 
+_EXECUTION_MODES = ("serial", "parallel")
+
+
+def validate_execution(project: Project) -> list[str]:
+    """Check the Version 27 execution settings (serial/parallel element computation)."""
+    errors: list[str] = []
+    execution = project.execution
+
+    if execution.mode not in _EXECUTION_MODES:
+        errors.append(f"Execution mode must be one of {_EXECUTION_MODES}.")
+    if execution.workers is not None and execution.workers < 1:
+        errors.append("Execution workers must be a positive integer or unset (automatic).")
+    if execution.batch_size != "auto" and (
+        not isinstance(execution.batch_size, int) or execution.batch_size < 1
+    ):
+        errors.append("Execution batch_size must be 'auto' or a positive integer.")
+
+    return errors
+
+
 def validate_project(project: Project) -> ValidationResult:
     """Run every validation category and aggregate the results.
 
@@ -207,4 +227,5 @@ def validate_project(project: Project) -> ValidationResult:
         errors += validate_boundary_conditions(project)
         errors += validate_loads(project)
     errors += validate_solver(project)
+    errors += validate_execution(project)
     return ValidationResult(errors=errors)

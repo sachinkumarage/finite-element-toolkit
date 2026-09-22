@@ -1,23 +1,28 @@
 """Solver page: engineering-oriented solver configuration (Version 24 spec
 section 11, extended Version 26 spec section 21: matrix representation and
-solver selection).
+solver selection, extended Version 27 spec section 26: element-computation
+execution settings).
 """
 
 from __future__ import annotations
 
+import contextlib
 from typing import TYPE_CHECKING
 
 import streamlit as st
 
-from femtoolkit.application.validation import validate_solver
+from femtoolkit.application.validation import validate_execution, validate_solver
+from femtoolkit.execution.config import ExecutionConfig, resolve_workers
 from femtoolkit.gui.components import error_banner, require_project
 from femtoolkit.gui.state import AppState
 
 if TYPE_CHECKING:
+    from femtoolkit.application.project import Project
     from femtoolkit.solvers.results import SolverResult
 
 _MATRIX_TYPE_LABELS = {"dense": "Dense", "sparse": "Sparse"}
 _SOLVER_TYPE_LABELS = {"direct": "Direct", "conjugate_gradient": "Conjugate Gradient"}
+_EXECUTION_MODE_LABELS = {"serial": "Serial", "parallel": "Parallel"}
 
 
 def render(state: AppState) -> None:
@@ -95,9 +100,70 @@ def render(state: AppState) -> None:
     else:
         st.success("Solver configuration valid.")
 
+    st.divider()
+    _render_execution_settings(project)
+
     if state.has_results() and state.last_run.solver_diagnostics is not None:
         st.divider()
         _render_last_diagnostics(state.last_run.solver_diagnostics)
+
+
+def _render_execution_settings(project: Project) -> None:
+    st.subheader("Execution Settings")
+    st.caption("How per-element stiffness/conductivity matrices are computed (Version 27).")
+
+    col_mode, col_workers, col_batch = st.columns(3)
+    with col_mode:
+        mode = st.selectbox(
+            "Mode",
+            options=list(_EXECUTION_MODE_LABELS),
+            index=list(_EXECUTION_MODE_LABELS).index(project.execution.mode),
+            format_func=lambda key: _EXECUTION_MODE_LABELS[key],
+            help=(
+                "Serial: one element at a time in this process (the default -- matches "
+                "every prior version). Parallel: elements are split across several worker "
+                "processes/threads. Only worthwhile for large meshes; small meshes are "
+                "typically slower in parallel due to process-startup overhead."
+            ),
+        )
+    with col_workers:
+        automatic_workers = resolve_workers(ExecutionConfig())
+        use_automatic = project.execution.workers is None
+        workers_input = st.number_input(
+            "Workers",
+            value=project.execution.workers or automatic_workers,
+            min_value=1,
+            step=1,
+            disabled=mode != "parallel",
+            help=f"Number of worker processes. Automatic default: {automatic_workers}.",
+        )
+        automatic_checkbox = st.checkbox(
+            "Automatic",
+            value=use_automatic,
+            disabled=mode != "parallel",
+            help="Use the automatic worker count instead of the value above.",
+        )
+    with col_batch:
+        batch_size = st.text_input(
+            "Batch Size",
+            value=str(project.execution.batch_size),
+            disabled=mode != "parallel",
+            help="'auto' or a positive integer number of elements per worker task.",
+        )
+
+    project.execution.mode = mode
+    project.execution.workers = None if automatic_checkbox else int(workers_input)
+    project.execution.batch_size = "auto" if batch_size.strip() == "auto" else batch_size.strip()
+    if project.execution.batch_size != "auto":
+        # Left as the invalid string on a ValueError; validate_execution reports it below.
+        with contextlib.suppress(ValueError):
+            project.execution.batch_size = int(project.execution.batch_size)
+
+    execution_errors = validate_execution(project)
+    if execution_errors:
+        error_banner("Execution configuration invalid", execution_errors)
+    else:
+        st.success("Execution configuration valid.")
 
 
 def _render_last_diagnostics(diagnostics: SolverResult) -> None:

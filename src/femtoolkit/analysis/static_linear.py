@@ -32,6 +32,7 @@ from femtoolkit.analysis.multi_point_constraint import (
     apply_multi_point_constraints,
     apply_multi_point_constraints_sparse,
 )
+from femtoolkit.analysis.parallel_assembly import compute_stiffness_contributions
 from femtoolkit.analysis.sparse_assembly import assemble_global_stiffness_sparse
 from femtoolkit.analysis.system import LinearSystem, build_force_vector, solve
 from femtoolkit.exceptions import (
@@ -40,6 +41,9 @@ from femtoolkit.exceptions import (
     InvalidElementError,
     SingularSystemError,
 )
+from femtoolkit.execution.config import resolve_workers
+from femtoolkit.execution.executor import create_executor
+from femtoolkit.performance.profiler import ASSEMBLY, ELEMENT, SOLVE, Profiler
 
 if TYPE_CHECKING:
     # Imported only for type checking: femtoolkit.mesh and
@@ -47,7 +51,9 @@ if TYPE_CHECKING:
     # module-level import here would create a circular import. The real
     # imports happen inside solve(), once every package has finished
     # loading.
+    from femtoolkit.execution.config import ExecutionConfig
     from femtoolkit.mesh.mesh import Mesh
+    from femtoolkit.performance.profiler import PerformanceReport
     from femtoolkit.results.analysis_result import AnalysisResult
     from femtoolkit.solvers.base import LinearSolver
     from femtoolkit.solvers.results import SolverResult
@@ -74,7 +80,12 @@ class StaticLinearAnalysis:
         >>> result = analysis.solve()
     """
 
-    def __init__(self, mesh: Mesh, solver: LinearSolver | None = None) -> None:
+    def __init__(
+        self,
+        mesh: Mesh,
+        solver: LinearSolver | None = None,
+        execution: ExecutionConfig | None = None,
+    ) -> None:
         """Create an analysis for the given mesh.
 
         Args:
@@ -96,10 +107,25 @@ class StaticLinearAnalysis:
                 requires, and :attr:`last_solver_result` is populated
                 after :meth:`solve` with the full diagnostic
                 :class:`~femtoolkit.solvers.results.SolverResult`.
+            execution: An :class:`~femtoolkit.execution.config.ExecutionConfig`
+                (Version 27) controlling how per-element stiffness
+                matrices are computed. ``None`` (the default) reproduces
+                every prior version's exact behavior unchanged: a plain
+                serial loop over ``mesh.elements`` in the calling
+                process. When given, element computation is routed
+                through the :class:`~femtoolkit.execution.executor.ElementExecutor`
+                :func:`~femtoolkit.execution.executor.create_executor`
+                builds from it (see
+                :mod:`femtoolkit.analysis.parallel_assembly`) -- the
+                assembled stiffness matrix is mathematically identical
+                either way. :attr:`last_performance_report` is populated
+                after every :meth:`solve` call regardless of ``execution``.
         """
         self._mesh = mesh
         self._solver = solver
+        self._execution = execution
         self.last_solver_result: SolverResult | None = None
+        self.last_performance_report: PerformanceReport | None = None
         self._loads: list[NodalLoad] = []
         self._boundary_conditions: list[BoundaryCondition] = []
         self._multi_point_constraints: list[MultiPointConstraint] = []
@@ -155,6 +181,11 @@ class StaticLinearAnalysis:
             InvalidSolverConfigurationError: If a non-default ``solver``
                 rejects the assembled matrix (e.g. Conjugate Gradient
                 against a non-symmetric matrix).
+            TaskSerializationError: If a non-default parallel ``execution``
+                (Version 27) using the ``"process"`` backend cannot
+                pickle an element.
+            WorkerExecutionError: If computing an element's stiffness
+                matrix raises inside a worker process/thread.
         """
         # Imported locally to avoid the circular import described above.
         from femtoolkit.results.analysis_result import AnalysisResult
@@ -189,44 +220,66 @@ class StaticLinearAnalysis:
 
         dof_map = DOFMap(node_ids=[node.id for node in nodes], dofs_per_node=dofs_per_node)
 
-        contributions = [
-            ElementStiffnessContribution(element.dof_keys(), element.stiffness_matrix)
-            for element in elements
-        ]
-        forces = build_force_vector(dof_map, self._loads)
+        profiler = Profiler()
+        with profiler:
+            with profiler.stage(ELEMENT):
+                if self._execution is None:
+                    contributions = [
+                        ElementStiffnessContribution(element.dof_keys(), element.stiffness_matrix)
+                        for element in elements
+                    ]
+                else:
+                    executor = create_executor(self._execution)
+                    contributions = compute_stiffness_contributions(elements, executor)
 
-        if self._solver is None or self._solver.MATRIX_TYPE == "dense":
-            global_stiffness = assemble_global_stiffness(dof_map, contributions)
-            global_stiffness = apply_multi_point_constraints(
-                dof_map, global_stiffness, self._multi_point_constraints
-            )
-        else:
-            global_stiffness = assemble_global_stiffness_sparse(dof_map, contributions)
-            global_stiffness = apply_multi_point_constraints_sparse(
-                dof_map, global_stiffness, self._multi_point_constraints
+            forces = build_force_vector(dof_map, self._loads)
+
+            with profiler.stage(ASSEMBLY):
+                if self._solver is None or self._solver.MATRIX_TYPE == "dense":
+                    global_stiffness = assemble_global_stiffness(dof_map, contributions)
+                    global_stiffness = apply_multi_point_constraints(
+                        dof_map, global_stiffness, self._multi_point_constraints
+                    )
+                else:
+                    global_stiffness = assemble_global_stiffness_sparse(dof_map, contributions)
+                    global_stiffness = apply_multi_point_constraints_sparse(
+                        dof_map, global_stiffness, self._multi_point_constraints
+                    )
+
+            system = LinearSystem(
+                dof_map=dof_map,
+                stiffness=global_stiffness,
+                forces=forces,
+                boundary_conditions=self._boundary_conditions,
             )
 
-        system = LinearSystem(
-            dof_map=dof_map,
-            stiffness=global_stiffness,
-            forces=forces,
-            boundary_conditions=self._boundary_conditions,
+            with profiler.stage(SOLVE):
+                if self._solver is None:
+                    try:
+                        displacements = solve(system)
+                    except np.linalg.LinAlgError as error:
+                        raise SingularSystemError(
+                            "The global stiffness matrix is singular: the structure is "
+                            "insufficiently constrained (e.g. a free mechanism) even "
+                            "though boundary conditions were provided."
+                        ) from error
+                    self.last_solver_result = None
+                else:
+                    solver_result = self._solver.solve(system)
+                    displacements = solver_result.solution
+                    self.last_solver_result = solver_result
+
+        self.last_performance_report = profiler.report(
+            solver_result=self.last_solver_result,
+            execution_mode=self._execution.mode if self._execution is not None else "serial",
+            workers=(
+                resolve_workers(self._execution)
+                if self._execution is not None and self._execution.mode == "parallel"
+                else None
+            ),
+            node_count=len(nodes),
+            element_count=len(elements),
         )
-
-        if self._solver is None:
-            try:
-                displacements = solve(system)
-            except np.linalg.LinAlgError as error:
-                raise SingularSystemError(
-                    "The global stiffness matrix is singular: the structure is "
-                    "insufficiently constrained (e.g. a free mechanism) even "
-                    "though boundary conditions were provided."
-                ) from error
-            self.last_solver_result = None
-        else:
-            solver_result = self._solver.solve(system)
-            displacements = solver_result.solution
-            self.last_solver_result = solver_result
 
         reactions = global_stiffness @ displacements - forces
 

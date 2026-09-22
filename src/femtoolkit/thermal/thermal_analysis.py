@@ -105,12 +105,18 @@ from femtoolkit.analysis.boundary_conditions import BoundaryCondition
 from femtoolkit.analysis.convergence import residual_norm_ratio
 from femtoolkit.analysis.dof import DOFMap, TranslationDOF
 from femtoolkit.analysis.dynamic_loads import TimeDependentLoad
+from femtoolkit.analysis.parallel_assembly import compute_conductivity_contributions
 from femtoolkit.analysis.sparse_assembly import assemble_global_stiffness_sparse
 from femtoolkit.analysis.system import LinearSystem, solve
 from femtoolkit.exceptions import NonlinearConvergenceError, SingularSystemError, ValidationError
+from femtoolkit.execution.config import resolve_workers
+from femtoolkit.execution.executor import create_executor
 from femtoolkit.mesh.mesh import Mesh
+from femtoolkit.performance.profiler import ASSEMBLY, ELEMENT, SOLVE, Profiler
 
 if TYPE_CHECKING:
+    from femtoolkit.execution.config import ExecutionConfig
+    from femtoolkit.performance.profiler import PerformanceReport
     from femtoolkit.solvers.base import LinearSolver
     from femtoolkit.solvers.results import SolverResult
 from femtoolkit.thermal.thermal_boundary_conditions import (
@@ -545,6 +551,19 @@ class SteadyStateThermalAnalysis:
             :class:`~femtoolkit.solvers.results.SolverResult` from the
             most recent :meth:`solve` call, if ``solver`` was given and
             the linear (non-nonlinear) path was taken; ``None`` otherwise.
+        execution: An :class:`~femtoolkit.execution.config.ExecutionConfig`
+            (Version 27) controlling how per-element conductivity
+            matrices are computed, used only for the *linear* case (the
+            nonlinear Newton-Raphson path is unaffected). ``None`` (the
+            default) reproduces every prior version's exact behavior: a
+            plain serial loop over ``mesh.elements``. See
+            :attr:`~femtoolkit.analysis.static_linear.StaticLinearAnalysis.__init__`'s
+            ``execution`` parameter for the full behavior this mirrors.
+        last_performance_report: The
+            :class:`~femtoolkit.performance.profiler.PerformanceReport`
+            from the most recent :meth:`solve` call, if the linear path
+            was taken; ``None`` otherwise (the nonlinear Newton-Raphson
+            path is not profiled).
 
     Raises:
         ValidationError: If ``materials`` is missing an entry for any
@@ -564,7 +583,9 @@ class SteadyStateThermalAnalysis:
     nonlinear_max_iterations: int = _DEFAULT_NONLINEAR_MAX_ITERATIONS
     nonlinear_tolerance: float = _DEFAULT_NONLINEAR_TOLERANCE
     solver: LinearSolver | None = None
+    execution: ExecutionConfig | None = None
     last_solver_result: SolverResult | None = field(default=None, init=False)
+    last_performance_report: PerformanceReport | None = field(default=None, init=False)
     _boundary_conditions: list[PrescribedTemperature] = field(default_factory=list, init=False)
     _heat_fluxes: list[PrescribedHeatFlux] = field(default_factory=list, init=False)
     _thermal_loads: list[ThermalLoad] = field(default_factory=list, init=False)
@@ -631,6 +652,12 @@ class SteadyStateThermalAnalysis:
                 is singular.
             NonlinearConvergenceError: If the nonlinear system fails to
                 converge within :attr:`nonlinear_max_iterations`.
+            TaskSerializationError: If a non-default parallel ``execution``
+                (Version 27) using the ``"process"`` backend cannot
+                pickle an element or material, in the linear case.
+            WorkerExecutionError: If computing an element's conductivity
+                matrix raises inside a worker process/thread, in the
+                linear case.
         """
         if not self._boundary_conditions:
             raise ValidationError(
@@ -640,18 +667,20 @@ class SteadyStateThermalAnalysis:
 
         dof_map = DOFMap(node_ids=[node.id for node in self.mesh.nodes], dofs_per_node=1)
 
-        conductivity_contributions = [
-            conductivity_contribution(
-                element, self.materials[element.id], self.evaluation_temperature
-            )
-            for element in self.mesh.elements
-        ]
-
         flux_loads = [ThermalLoad(bc.node_id, bc.value) for bc in self._heat_fluxes]
 
         boundary_conditions = list(self._boundary_conditions)
 
         if _requires_nonlinear_solve(self._convections, self._radiations):
+            # The nonlinear Newton-Raphson path (Version 21) is unaffected by
+            # `execution`/`solver` (Version 26-27): it always uses the exact
+            # serial, dense code path it always has.
+            conductivity_contributions = [
+                conductivity_contribution(
+                    element, self.materials[element.id], self.evaluation_temperature
+                )
+                for element in self.mesh.elements
+            ]
             k_t = assemble_global_stiffness(dof_map, conductivity_contributions)
             f_t = build_thermal_force_vector(dof_map, [*self._thermal_loads, *flux_loads])
             initial_temperatures = np.full(dof_map.total_dofs, self.evaluation_temperature)
@@ -669,33 +698,69 @@ class SteadyStateThermalAnalysis:
                 tolerance=self.nonlinear_tolerance,
             )
         else:
-            conv_stiffness, conv_loads = _linear_convection_contributions(
-                self.mesh, self._convections, time=0.0
+            profiler = Profiler()
+            with profiler:
+                with profiler.stage(ELEMENT):
+                    if self.execution is None:
+                        conductivity_contributions = [
+                            conductivity_contribution(
+                                element, self.materials[element.id], self.evaluation_temperature
+                            )
+                            for element in self.mesh.elements
+                        ]
+                    else:
+                        executor = create_executor(self.execution)
+                        conductivity_contributions = compute_conductivity_contributions(
+                            self.mesh.elements,
+                            self.materials,
+                            self.evaluation_temperature,
+                            executor,
+                        )
+
+                conv_stiffness, conv_loads = _linear_convection_contributions(
+                    self.mesh, self._convections, time=0.0
+                )
+                all_contributions = [*conductivity_contributions, *conv_stiffness]
+
+                with profiler.stage(ASSEMBLY):
+                    if self.solver is None or self.solver.MATRIX_TYPE == "dense":
+                        k_t = assemble_global_stiffness(dof_map, all_contributions)
+                    else:
+                        k_t = assemble_global_stiffness_sparse(dof_map, all_contributions)
+
+                f_t = build_thermal_force_vector(
+                    dof_map, [*self._thermal_loads, *flux_loads, *conv_loads]
+                )
+                system = LinearSystem(
+                    dof_map=dof_map,
+                    stiffness=k_t,
+                    forces=f_t,
+                    boundary_conditions=[
+                        BoundaryCondition(bc.node_id, _TEMPERATURE_DOF, bc.value)
+                        for bc in boundary_conditions
+                    ],
+                )
+
+                with profiler.stage(SOLVE):
+                    if self.solver is None:
+                        temperatures = solve(system)
+                        self.last_solver_result = None
+                    else:
+                        solver_result = self.solver.solve(system)
+                        temperatures = solver_result.solution
+                        self.last_solver_result = solver_result
+
+            self.last_performance_report = profiler.report(
+                solver_result=self.last_solver_result,
+                execution_mode=self.execution.mode if self.execution is not None else "serial",
+                workers=(
+                    resolve_workers(self.execution)
+                    if self.execution is not None and self.execution.mode == "parallel"
+                    else None
+                ),
+                node_count=len(self.mesh.nodes),
+                element_count=len(self.mesh.elements),
             )
-            all_contributions = [*conductivity_contributions, *conv_stiffness]
-            if self.solver is None or self.solver.MATRIX_TYPE == "dense":
-                k_t = assemble_global_stiffness(dof_map, all_contributions)
-            else:
-                k_t = assemble_global_stiffness_sparse(dof_map, all_contributions)
-            f_t = build_thermal_force_vector(
-                dof_map, [*self._thermal_loads, *flux_loads, *conv_loads]
-            )
-            system = LinearSystem(
-                dof_map=dof_map,
-                stiffness=k_t,
-                forces=f_t,
-                boundary_conditions=[
-                    BoundaryCondition(bc.node_id, _TEMPERATURE_DOF, bc.value)
-                    for bc in boundary_conditions
-                ],
-            )
-            if self.solver is None:
-                temperatures = solve(system)
-                self.last_solver_result = None
-            else:
-                solver_result = self.solver.solve(system)
-                temperatures = solver_result.solution
-                self.last_solver_result = solver_result
 
         return SteadyStateThermalResult(
             dof_map=dof_map,

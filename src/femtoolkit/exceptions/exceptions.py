@@ -290,3 +290,45 @@ class UnsupportedSolverError(SolverError):
     ``matrix_type``/``solver_type`` combination does not name a
     supported solver.
     """
+
+
+class ExecutionError(FiniteElementToolkitError):
+    """Base class for errors raised by :mod:`femtoolkit.execution` (Version 27).
+
+    Catching this exception handles any problem specific to serial/parallel
+    element-task execution without needing to know whether the failure was
+    a configuration mistake, a worker-side exception, or a serialization
+    problem.
+    """
+
+
+class InvalidExecutionConfigurationError(ExecutionError):
+    """Raised when an :class:`~femtoolkit.execution.config.ExecutionConfig` is invalid.
+
+    Examples: a non-positive worker count, a non-positive explicit chunk
+    size, or an unknown backend name.
+    """
+
+
+class TaskSerializationError(ExecutionError):
+    """Raised when a task or its arguments cannot be sent to a worker process.
+
+    :class:`~concurrent.futures.ProcessPoolExecutor` communicates with its
+    worker processes by pickling the callable and every argument; a
+    closure, lambda, or bound method of an unpicklable object cannot cross
+    that boundary. This is a toolkit-specific wrapper around the
+    underlying :class:`pickle.PicklingError`/:class:`AttributeError` so
+    callers can catch one exception type regardless of which stdlib
+    exception the pickling failure happened to surface as.
+    """
+
+
+class WorkerExecutionError(ExecutionError):
+    """Raised when a worker process raises while executing a task.
+
+    The original exception is chained via ``__cause__`` (``raise ... from
+    error``) so its type and message remain inspectable; this wrapper
+    exists because a worker-side exception is otherwise reported by
+    :mod:`concurrent.futures` with a traceback that only makes sense in
+    the worker process, not the caller's.
+    """

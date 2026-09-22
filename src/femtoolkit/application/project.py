@@ -150,6 +150,27 @@ class SolverConfig:
 
 
 @dataclass
+class ExecutionSettingsConfig:
+    """Element-computation execution settings exposed to the user (Version 27).
+
+    Attributes:
+        mode: ``"serial"`` (the default) or ``"parallel"`` -- how
+            per-element stiffness/conductivity matrices are computed;
+            see :class:`~femtoolkit.execution.config.ExecutionConfig`.
+        workers: Number of workers when ``mode == "parallel"``. ``None``
+            (the default) resolves automatically; see
+            :func:`~femtoolkit.execution.config.resolve_workers`.
+        batch_size: ``"auto"`` (the default) or a positive integer
+            number of elements per worker task; see
+            :func:`~femtoolkit.execution.executor.resolve_chunk_size`.
+    """
+
+    mode: str = "serial"
+    workers: int | None = None
+    batch_size: str | int = "auto"
+
+
+@dataclass
 class Project:
     """A complete, serializable engineering project configuration.
 
@@ -162,6 +183,8 @@ class Project:
         boundary_conditions: Every configured boundary condition.
         loads: Every configured load.
         solver: The configured solver settings.
+        execution: The configured element-computation execution settings
+            (Version 27).
         created_at: ISO-8601 UTC timestamp set at creation time.
         format_version: The schema version this project was written with.
     """
@@ -173,6 +196,7 @@ class Project:
     boundary_conditions: list[BoundaryConditionConfig] = field(default_factory=list)
     loads: list[LoadConfig] = field(default_factory=list)
     solver: SolverConfig = field(default_factory=SolverConfig)
+    execution: ExecutionSettingsConfig = field(default_factory=ExecutionSettingsConfig)
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     format_version: int = PROJECT_FORMAT_VERSION
 
@@ -203,6 +227,7 @@ class Project:
             ],
             loads=[LoadConfig(**load) for load in data.get("loads", [])],
             solver=SolverConfig(**data.get("solver", {})),
+            execution=ExecutionSettingsConfig(**data.get("execution", {})),
             created_at=data.get("created_at", datetime.now(timezone.utc).isoformat()),
             format_version=data.get("format_version", PROJECT_FORMAT_VERSION),
         )
