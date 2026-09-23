@@ -52,11 +52,13 @@ from femtoolkit.postprocessing.result_model import (
     SimulationResult,
 )
 from femtoolkit.postprocessing.visualization import (
+    plot_comparison_line,
     plot_deformed_shape_2d,
     plot_element_scatter_2d,
     plot_heat_flux_vectors_2d,
     plot_line,
     plot_nodal_contour_2d,
+    plot_semilog_line,
     plot_time_history,
 )
 
@@ -80,11 +82,13 @@ __all__ = [
     "from_thermal_steady_state",
     "from_thermal_transient",
     "merge_thermomechanical",
+    "plot_comparison_line",
     "plot_deformed_shape_2d",
     "plot_element_scatter_2d",
     "plot_heat_flux_vectors_2d",
     "plot_line",
     "plot_nodal_contour_2d",
+    "plot_semilog_line",
     "plot_time_history",
     "summarize",
     "vector_magnitude",

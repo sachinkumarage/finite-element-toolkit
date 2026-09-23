@@ -13,6 +13,7 @@ from femtoolkit.application.simulation_service import (
     SimulationService,
 )
 from femtoolkit.exceptions import ValidationError
+from femtoolkit.verification.status import VerificationStatus
 
 
 def _mechanical_project() -> Project:
@@ -244,3 +245,29 @@ def test_run_invalid_execution_mode_is_invalid() -> None:
 
     assert result.status == RUN_STATUS_INVALID
     assert any("mode" in error for error in result.errors)
+
+
+def test_run_mechanical_populates_equilibrium_check() -> None:
+    result = SimulationService().run(_mechanical_project())
+
+    assert result.succeeded
+    assert result.equilibrium_check is not None
+    assert result.equilibrium_check.status is VerificationStatus.PASS
+    assert len(result.equilibrium_check.components) == 2
+
+
+def test_run_thermal_populates_equilibrium_check() -> None:
+    result = SimulationService().run(_thermal_project())
+
+    assert result.succeeded
+    assert result.equilibrium_check is not None
+    assert result.equilibrium_check.name == "Thermal energy balance"
+
+
+def test_run_invalid_project_has_no_equilibrium_check() -> None:
+    project = _mechanical_project()
+    project.boundary_conditions = []
+
+    result = SimulationService().run(project)
+
+    assert result.equilibrium_check is None

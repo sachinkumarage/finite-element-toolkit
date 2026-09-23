@@ -30,6 +30,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from femtoolkit.analysis.static_linear import StaticLinearAnalysis
+from femtoolkit.analysis.system import build_force_vector
 from femtoolkit.application.model_service import ModelService
 from femtoolkit.application.project import Project
 from femtoolkit.application.validation import validate_project
@@ -43,10 +44,12 @@ from femtoolkit.postprocessing import (
     with_derived_fields,
 )
 from femtoolkit.thermal import SteadyStateThermalAnalysis
+from femtoolkit.verification.checks import check_force_equilibrium, check_thermal_energy_balance
 
 if TYPE_CHECKING:
     from femtoolkit.performance.profiler import PerformanceReport
     from femtoolkit.solvers.results import SolverResult
+    from femtoolkit.verification.checks import EquilibriumCheckResult
 
 RUN_STATUS_COMPLETED = "completed"
 RUN_STATUS_INVALID = "invalid"
@@ -81,6 +84,13 @@ class SimulationRunResult:
             (Version 27) from the run, if ``status == "completed"`` and
             the analysis took the linear (non-nonlinear) solve path;
             ``None`` otherwise.
+        equilibrium_check: An
+            :class:`~femtoolkit.verification.checks.EquilibriumCheckResult`
+            (Version 29) computed automatically for every completed run
+            -- global force equilibrium for ``"linear_static"``, thermal
+            energy balance for ``"thermal_steady_state"`` -- so the GUI
+            can surface it without performing any check itself. ``None``
+            if ``status != "completed"``.
     """
 
     status: str
@@ -89,6 +99,7 @@ class SimulationRunResult:
     errors: list[str] = field(default_factory=list)
     solver_diagnostics: SolverResult | None = None
     performance_report: PerformanceReport | None = None
+    equilibrium_check: EquilibriumCheckResult | None = None
 
     @property
     def succeeded(self) -> bool:
@@ -116,7 +127,9 @@ class SimulationService:
             return SimulationRunResult(status=RUN_STATUS_INVALID, errors=list(validation.errors))
 
         try:
-            simulation, solver_diagnostics, performance_report = self._solve(project)
+            simulation, solver_diagnostics, performance_report, equilibrium_check = self._solve(
+                project
+            )
         except FiniteElementToolkitError as exc:
             return SimulationRunResult(status=RUN_STATUS_FAILED, errors=[f"Solver error: {exc}"])
         except Exception as exc:  # noqa: BLE001 - never let a GUI crash on an unexpected solver error
@@ -130,11 +143,14 @@ class SimulationService:
             summary=summarize(simulation),
             solver_diagnostics=solver_diagnostics,
             performance_report=performance_report,
+            equilibrium_check=equilibrium_check,
         )
 
     def _solve(
         self, project: Project
-    ) -> tuple[SimulationResult, SolverResult | None, PerformanceReport | None]:
+    ) -> tuple[
+        SimulationResult, SolverResult | None, PerformanceReport | None, EquilibriumCheckResult
+    ]:
         mesh = self._model_service.build_mesh(project)
         boundary_conditions = self._model_service.build_boundary_conditions(project, mesh)
         loads = self._model_service.build_loads(project, mesh)
@@ -149,7 +165,16 @@ class SimulationService:
                 analysis.add_load(load)
             raw_result = analysis.solve()
             simulation = with_derived_fields(from_static_linear(raw_result))
-            return simulation, analysis.last_solver_result, analysis.last_performance_report
+            forces = build_force_vector(raw_result.dof_map, loads)
+            equilibrium_check = check_force_equilibrium(
+                raw_result.dof_map, forces, raw_result.reactions
+            )
+            return (
+                simulation,
+                analysis.last_solver_result,
+                analysis.last_performance_report,
+                equilibrium_check,
+            )
 
         if project.analysis_type == "thermal_steady_state":
             materials = self._model_service.build_thermal_materials(project, mesh)
@@ -162,7 +187,13 @@ class SimulationService:
                 analysis.add_heat_flux(heat_flux)
             raw_result = analysis.solve()
             simulation = with_derived_fields(from_thermal_steady_state(raw_result))
-            return simulation, analysis.last_solver_result, analysis.last_performance_report
+            equilibrium_check = check_thermal_energy_balance(analysis, raw_result)
+            return (
+                simulation,
+                analysis.last_solver_result,
+                analysis.last_performance_report,
+                equilibrium_check,
+            )
 
         raise FiniteElementToolkitError(
             f"Analysis type {project.analysis_type!r} has no execution path in the GUI service "

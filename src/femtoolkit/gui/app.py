@@ -27,6 +27,7 @@ from femtoolkit.gui.workflow_pages import (
     results_page,
     run_page,
     solver_page,
+    verification_page,
     visualization_page,
 )
 
@@ -40,6 +41,7 @@ _PAGES = {
     "Run": run_page,
     "Results": results_page,
     "3D Visualization": visualization_page,
+    "Verification & Validation": verification_page,
 }
 
 

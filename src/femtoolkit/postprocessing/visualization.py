@@ -71,6 +71,100 @@ def plot_line(
     return figure
 
 
+def plot_semilog_line(
+    x_values: np.ndarray,
+    y_values: np.ndarray,
+    xlabel: str,
+    ylabel: str,
+    title: str,
+) -> Figure:
+    """Create a 1D line plot with a logarithmic vertical axis (a residual history, ...).
+
+    Version 29 addition, alongside :func:`plot_line`: a quantity like a
+    solver's residual norm typically spans several orders of magnitude
+    over the course of a solve, where a linear vertical axis would
+    compress every iteration but the first few into an indistinguishable
+    flat line near zero -- the standard visualization is a semi-log plot.
+
+    Args:
+        x_values: The horizontal axis values (e.g. iteration number).
+        y_values: The vertical axis values, same length as ``x_values``.
+            Must be strictly positive (a logarithmic axis cannot
+            represent zero or negative values).
+        xlabel: Horizontal axis label.
+        ylabel: Vertical axis label.
+        title: Plot title.
+
+    Returns:
+        A :class:`matplotlib.figure.Figure` with one semi-log line plot.
+    """
+    figure = Figure(figsize=(7.0, 5.0))
+    axes = figure.add_subplot(111)
+    axes.semilogy(x_values, y_values, marker="o", markersize=4, linewidth=1.5)
+    axes.set_xlabel(xlabel)
+    axes.set_ylabel(ylabel)
+    axes.set_title(title)
+    axes.grid(visible=True, which="both", alpha=0.3)
+    figure.tight_layout()
+    return figure
+
+
+def plot_comparison_line(
+    x_values: np.ndarray,
+    numerical_values: np.ndarray,
+    reference_values: np.ndarray,
+    xlabel: str,
+    ylabel: str,
+    title: str,
+    numerical_label: str = "FEA result",
+    reference_label: str = "Reference",
+) -> Figure:
+    """Create a 1D line plot overlaying a numerical result against a reference.
+
+    Version 29 addition, alongside :func:`plot_line`: the standard way
+    to visually compare a verification or validation result against its
+    analytical/reference counterpart -- two series on one set of axes,
+    distinguished by marker style rather than color alone (so the plot
+    stays readable in grayscale or for a color-blind reader).
+
+    Args:
+        x_values: The horizontal axis values, shared by both series.
+        numerical_values: The FEA (numerical) series.
+        reference_values: The reference series, same length as
+            ``numerical_values``.
+        xlabel: Horizontal axis label.
+        ylabel: Vertical axis label.
+        title: Plot title.
+        numerical_label: Legend label for ``numerical_values``.
+        reference_label: Legend label for ``reference_values``.
+
+    Returns:
+        A :class:`matplotlib.figure.Figure` with both series plotted and
+        a legend.
+    """
+    figure = Figure(figsize=(7.0, 5.0))
+    axes = figure.add_subplot(111)
+    axes.plot(
+        x_values, reference_values, marker="s", markersize=5, linewidth=1.5, label=reference_label
+    )
+    axes.plot(
+        x_values,
+        numerical_values,
+        marker="o",
+        markersize=4,
+        linewidth=1.0,
+        linestyle="--",
+        label=numerical_label,
+    )
+    axes.set_xlabel(xlabel)
+    axes.set_ylabel(ylabel)
+    axes.set_title(title)
+    axes.grid(visible=True, alpha=0.3)
+    axes.legend()
+    figure.tight_layout()
+    return figure
+
+
 def plot_nodal_contour_2d(
     result: SimulationResult,
     field_name: str,

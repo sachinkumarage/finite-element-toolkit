@@ -92,6 +92,15 @@ class ConjugateGradientSolver(LinearSolver):
             :class:`~femtoolkit.solvers.results.SolverResult` with
             ``converged=False``, for callers that want to inspect a
             partial result rather than handle an exception.
+        track_residual_history: If ``True`` (default ``False``),
+            records the relative residual at every iteration into
+            ``diagnostics["residual_history"]`` -- used by
+            :mod:`femtoolkit.verification` (Version 29) to plot solver
+            convergence. Disabled by default because computing a
+            residual at every iteration costs one extra sparse
+            matrix-vector product per iteration, roughly doubling a
+            solve's cost; every existing caller that does not opt in
+            pays nothing extra.
 
     Raises:
         InvalidSolverConfigurationError: If ``tolerance`` or
@@ -109,6 +118,7 @@ class ConjugateGradientSolver(LinearSolver):
     max_iterations: int = DEFAULT_MAX_ITERATIONS
     check_symmetry: bool = True
     raise_on_non_convergence: bool = True
+    track_residual_history: bool = False
     _last_iteration_count: int = field(default=0, init=False, repr=False)
 
     def __post_init__(self) -> None:
@@ -166,9 +176,13 @@ class ConjugateGradientSolver(LinearSolver):
             self._validate_symmetric(k_free_free_csr)
 
         self._last_iteration_count = 0
+        residual_history: list[float] = []
 
-        def _count_iteration(_xk: np.ndarray) -> None:
+        def _count_iteration(xk: np.ndarray) -> None:
             self._last_iteration_count += 1
+            if self.track_residual_history:
+                _, relative = residual_norms(k_free_free_csr, reduced_forces, xk)
+                residual_history.append(relative)
 
         def _run_cg() -> tuple[np.ndarray, int]:
             return spla.cg(
@@ -195,6 +209,15 @@ class ConjugateGradientSolver(LinearSolver):
 
         displacements[free] = solution_free
 
+        diagnostics = {
+            "dofs": n,
+            "free_dofs": int(free.size),
+            "nnz": nnz,
+            "density": density,
+        }
+        if self.track_residual_history:
+            diagnostics["residual_history"] = residual_history
+
         return SolverResult(
             solution=displacements,
             converged=converged,
@@ -203,12 +226,7 @@ class ConjugateGradientSolver(LinearSolver):
             relative_residual=relative_residual,
             solve_time=solve_time,
             solver_name="Conjugate Gradient",
-            diagnostics={
-                "dofs": n,
-                "free_dofs": int(free.size),
-                "nnz": nnz,
-                "density": density,
-            },
+            diagnostics=diagnostics,
         )
 
     def _validate_symmetric(self, matrix: sp.csr_matrix) -> None:

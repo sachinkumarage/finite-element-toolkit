@@ -39,3 +39,9 @@ examples/gui/engineering_workspace_demo/*.json
 
 # Generated example outputs (Version 25 meshing examples)
 examples/meshing/*.png
+
+# Generated example outputs (Version 29 verification/validation/reporting examples)
+examples/verification/*.png
+examples/validation/*.png
+examples/reports/*.md
+examples/reports/*.html
