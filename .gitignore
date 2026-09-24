@@ -45,3 +45,8 @@ examples/verification/*.png
 examples/validation/*.png
 examples/reports/*.md
 examples/reports/*.html
+
+# Generated example outputs (Version 30 simulation study examples)
+examples/studies/*.png
+examples/studies/*.md
+examples/studies/run_history.json

@@ -332,3 +332,31 @@ class WorkerExecutionError(ExecutionError):
     :mod:`concurrent.futures` with a traceback that only makes sense in
     the worker process, not the caller's.
     """
+
+
+class StudyError(FiniteElementToolkitError):
+    """Base class for errors raised by :mod:`femtoolkit.studies` (Version 30).
+
+    Catching this exception handles any problem specific to parameter
+    studies (scenario generation, run orchestration, comparison) without
+    needing to know the precise cause.
+    """
+
+
+class StudySizeExceededError(StudyError):
+    """Raised when a parameter study would generate more scenarios than allowed.
+
+    A multi-parameter study's scenario count grows combinatorially (the
+    product of every parameter's value count); this guards against
+    accidentally requesting an unreasonable number of simulation runs.
+    Raised *before* any scenario is executed -- a study is never silently
+    truncated.
+    """
+
+
+class DuplicateScenarioIdError(StudyError):
+    """Raised when two scenarios in the same study share a scenario ID.
+
+    Every scenario in a study must be uniquely identifiable so its run
+    can be unambiguously traced back to it in run history and reports.
+    """

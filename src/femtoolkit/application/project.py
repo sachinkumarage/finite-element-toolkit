@@ -18,8 +18,11 @@ describes how to build one.
 
 from __future__ import annotations
 
+import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
+
+from femtoolkit.exceptions import ValidationError
 
 PROJECT_FORMAT_VERSION = 1
 """Schema version written into every saved project file, so a future
@@ -187,6 +190,13 @@ class Project:
             (Version 27).
         created_at: ISO-8601 UTC timestamp set at creation time.
         format_version: The schema version this project was written with.
+        project_id: A stable identifier for this project, generated once
+            at creation time and preserved across save/load round-trips
+            (Version 30). Used to trace a
+            :class:`~femtoolkit.runs.models.SimulationRun` back to the
+            project it was executed from -- this project *is* the
+            "simulation project" concept referenced by that version,
+            rather than a separate duplicated model.
     """
 
     name: str = "Untitled Project"
@@ -199,6 +209,7 @@ class Project:
     execution: ExecutionSettingsConfig = field(default_factory=ExecutionSettingsConfig)
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     format_version: int = PROJECT_FORMAT_VERSION
+    project_id: str = field(default_factory=lambda: str(uuid.uuid4()))
 
     def to_dict(self) -> dict:
         """Return a plain, JSON-serializable representation of this project."""
@@ -216,7 +227,22 @@ class Project:
 
         Returns:
             A new :class:`Project`.
+
+        Raises:
+            ValidationError: If ``data["format_version"]`` is newer than
+                this toolkit's own :data:`PROJECT_FORMAT_VERSION` (a
+                project saved by a future version this toolkit does not
+                yet know how to read -- no migration framework exists
+                yet, so this is reported rather than silently
+                misinterpreted).
         """
+        format_version = data.get("format_version", PROJECT_FORMAT_VERSION)
+        if format_version > PROJECT_FORMAT_VERSION:
+            raise ValidationError(
+                f"Project format_version {format_version} is newer than this toolkit "
+                f"supports (format_version {PROJECT_FORMAT_VERSION}); no migration path "
+                "exists yet for a project saved by a future version."
+            )
         return cls(
             name=data.get("name", "Untitled Project"),
             analysis_type=data.get("analysis_type", "linear_static"),
@@ -229,5 +255,6 @@ class Project:
             solver=SolverConfig(**data.get("solver", {})),
             execution=ExecutionSettingsConfig(**data.get("execution", {})),
             created_at=data.get("created_at", datetime.now(timezone.utc).isoformat()),
-            format_version=data.get("format_version", PROJECT_FORMAT_VERSION),
+            format_version=format_version,
+            project_id=data.get("project_id") or str(uuid.uuid4()),
         )

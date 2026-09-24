@@ -121,3 +121,34 @@ def test_project_service_load_missing_file_raises(tmp_path) -> None:
     service = ProjectService()
     with pytest.raises(ValidationError):
         service.load(tmp_path / "does_not_exist.json")
+
+
+def test_from_dict_rejects_future_format_version() -> None:
+    data = Project().to_dict()
+    data["format_version"] = 999
+    with pytest.raises(ValidationError):
+        Project.from_dict(data)
+
+
+def test_from_dict_accepts_current_format_version() -> None:
+    data = Project().to_dict()
+    restored = Project.from_dict(data)
+    assert restored.format_version == data["format_version"]
+
+
+def test_project_id_is_unique_per_instance() -> None:
+    assert Project().project_id != Project().project_id
+
+
+def test_project_id_round_trips_through_to_dict_from_dict() -> None:
+    project = Project(name="Has An Id")
+    restored = Project.from_dict(project.to_dict())
+    assert restored.project_id == project.project_id
+
+
+def test_from_dict_without_project_id_key_generates_one() -> None:
+    """A project saved before Version 30 (no `project_id` field) must still load cleanly."""
+    data = Project().to_dict()
+    del data["project_id"]
+    restored = Project.from_dict(data)
+    assert restored.project_id
