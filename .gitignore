@@ -50,3 +50,7 @@ examples/reports/*.html
 examples/studies/*.png
 examples/studies/*.md
 examples/studies/run_history.json
+
+# Generated example outputs (Version 31 uncertainty quantification examples)
+examples/uncertainty/*.png
+examples/uncertainty/*.md
