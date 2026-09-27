@@ -54,3 +54,7 @@ examples/studies/run_history.json
 # Generated example outputs (Version 31 uncertainty quantification examples)
 examples/uncertainty/*.png
 examples/uncertainty/*.md
+
+# Generated example outputs (Version 32 optimization examples)
+examples/optimization/*.png
+examples/optimization/*.md

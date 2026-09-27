@@ -23,6 +23,7 @@ from femtoolkit.gui.workflow_pages import (
     loads_page,
     material_page,
     mesh_page,
+    optimization_page,
     project_page,
     results_page,
     run_page,
@@ -46,6 +47,7 @@ _PAGES = {
     "Verification & Validation": verification_page,
     "Simulation Studies": studies_page,
     "Uncertainty Analysis": uncertainty_page,
+    "Optimization": optimization_page,
 }
 
 
