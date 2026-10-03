@@ -8,6 +8,7 @@ separate from *how to search* (this package): any
 
 from __future__ import annotations
 
+import math
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum
@@ -15,7 +16,7 @@ from enum import Enum
 from femtoolkit.exceptions import StudySizeExceededError, ValidationError
 from femtoolkit.optimization.evaluation import DesignEvaluation
 from femtoolkit.optimization.history import OptimizationHistory, compute_convergence
-from femtoolkit.optimization.objectives import Objective
+from femtoolkit.optimization.objectives import Objective, ObjectiveDirection
 from femtoolkit.optimization.problems import OptimizationProblem
 from femtoolkit.runs.manager import SimulationRunManager
 
@@ -28,7 +29,27 @@ DEFAULT_EVALUATION_LIMIT = 1000
 "stop before execution" safety pattern for a study that could otherwise
 request an unreasonable number of simulations."""
 
-SUPPORTED_ALGORITHMS = ("random_search", "coordinate_search")
+DEFAULT_MAX_GENERATIONS = 100
+"""The default generation/iteration budget for a population-based
+algorithm (Version 33). `max_evaluations` remains the binding,
+always-enforced budget; this is a secondary, independent stopping
+condition (see spec: "maximum generations/iterations" as a distinct
+criterion from "maximum evaluations")."""
+
+SUPPORTED_ALGORITHMS = (
+    "random_search",
+    "coordinate_search",
+    "differential_evolution",
+    "genetic_algorithm",
+    "particle_swarm",
+    "nsga2",
+)
+_POPULATION_ALGORITHMS = (
+    "differential_evolution",
+    "genetic_algorithm",
+    "particle_swarm",
+    "nsga2",
+)
 SUPPORTED_CONSTRAINT_HANDLING = ("feasibility_first",)
 
 
@@ -54,6 +75,14 @@ class StopReason(Enum):
             ``max_consecutive_failures``) -- the search was abandoned
             rather than continuing to spend evaluations on a
             configuration that cannot solve.
+        MAX_GENERATIONS: A population-based algorithm (Version 33:
+            differential evolution, genetic algorithm, particle swarm,
+            NSGA-II) reached its configured ``max_generations`` before
+            any other stopping condition was hit.
+        TARGET_REACHED: The best-feasible objective value reached or
+            passed a user-supplied ``target_objective`` (Version 33).
+            Reaching a target value says nothing about optimality --
+            only that the search's own stated goal was met.
     """
 
     COMPLETED = "completed"
@@ -61,6 +90,8 @@ class StopReason(Enum):
     CONVERGED = "converged"
     CANCELLED = "cancelled"
     FAILED = "failed"
+    MAX_GENERATIONS = "max_generations"
+    TARGET_REACHED = "target_reached"
 
 
 @dataclass
@@ -91,6 +122,50 @@ class OptimizationConfig:
         constraint_handling: The constraint-handling strategy. Only
             ``"feasibility_first"`` is implemented in this version (see
             :func:`~femtoolkit.optimization.evaluation.is_better_evaluation`).
+        max_generations: For a population-based algorithm (Version 33),
+            the generation/iteration budget -- a stopping condition
+            independent of (and usually reached before)
+            ``max_evaluations``. Ignored by ``random_search``/
+            ``coordinate_search``. ``None`` disables this check.
+        target_objective: An optional target value for the primary
+            objective; once the best-feasible value reaches or passes
+            it, the run stops with :attr:`StopReason.TARGET_REACHED`.
+            ``None`` disables this check. Reaching a target is a
+            user-defined stopping goal, never evidence of optimality.
+        population_size: The number of candidate designs maintained per
+            generation by a population-based algorithm. Differential
+            evolution requires at least 4 (its mutation step needs
+            three other distinct population members); every other
+            population-based algorithm requires at least 2.
+        mutation_factor: Differential evolution's scale factor ``F`` in
+            ``v = x_r1 + F * (x_r2 - x_r3)``; conventionally in
+            ``(0, 2]``.
+        crossover_probability: The probability a candidate's component
+            is taken from the mutant/other-parent vector rather than
+            the target/current vector -- differential evolution's
+            ``CR``, and the genetic algorithm's/NSGA-II's per-pair
+            crossover probability. Must lie in ``[0, 1]``.
+        mutation_probability: The genetic algorithm's/NSGA-II's
+            per-gene probability of a random mutation. Must lie in
+            ``[0, 1]``.
+        elite_count: How many of the current generation's best
+            individuals the genetic algorithm copies unchanged into the
+            next generation before filling the remainder via
+            selection/crossover/mutation. Must satisfy
+            ``0 <= elite_count < population_size``.
+        tournament_size: How many individuals compete in one tournament
+            selection draw (genetic algorithm, NSGA-II). Must satisfy
+            ``2 <= tournament_size <= population_size``.
+        inertia_weight: Particle swarm's velocity-retention coefficient
+            ``w``. Must lie in ``[0, 2]``.
+        cognitive_coefficient: Particle swarm's personal-best
+            attraction coefficient ``c1``. Must be non-negative.
+        social_coefficient: Particle swarm's global-best attraction
+            coefficient ``c2``. Must be non-negative.
+        velocity_limit: Particle swarm's per-step velocity clamp, as a
+            fraction of each variable's ``[lower, upper]`` span (the
+            same convention ``step_size`` uses for coordinate search).
+            Must lie in ``(0, 1]``.
     """
 
     algorithm: str = "random_search"
@@ -102,6 +177,18 @@ class OptimizationConfig:
     step_size: float = 0.1
     max_consecutive_failures: int = 10
     constraint_handling: str = "feasibility_first"
+    max_generations: int | None = DEFAULT_MAX_GENERATIONS
+    target_objective: float | None = None
+    population_size: int = 20
+    mutation_factor: float = 0.8
+    crossover_probability: float = 0.9
+    mutation_probability: float = 0.1
+    elite_count: int = 1
+    tournament_size: int = 3
+    inertia_weight: float = 0.7
+    cognitive_coefficient: float = 1.5
+    social_coefficient: float = 1.5
+    velocity_limit: float = 0.2
 
     def __post_init__(self) -> None:
         if self.algorithm not in SUPPORTED_ALGORITHMS:
@@ -127,6 +214,61 @@ class OptimizationConfig:
                 f"Unknown constraint_handling {self.constraint_handling!r}; this version "
                 f"only implements {SUPPORTED_CONSTRAINT_HANDLING}."
             )
+        if self.max_generations is not None and self.max_generations < 1:
+            raise ValidationError(
+                f"max_generations must be at least 1 or None, got {self.max_generations}."
+            )
+        if self.target_objective is not None and not math.isfinite(self.target_objective):
+            raise ValidationError("target_objective must be finite or None.")
+        if self.algorithm in _POPULATION_ALGORITHMS:
+            minimum_population = 4 if self.algorithm == "differential_evolution" else 2
+            if self.population_size < minimum_population:
+                raise ValidationError(
+                    f"population_size must be at least {minimum_population} for "
+                    f"{self.algorithm!r}, got {self.population_size}."
+                )
+        elif self.population_size < 1:
+            raise ValidationError(
+                f"population_size must be at least 1, got {self.population_size}."
+            )
+        if not (0.0 < self.mutation_factor <= 2.0):
+            raise ValidationError(
+                f"mutation_factor must lie in (0, 2], got {self.mutation_factor}."
+            )
+        if not (0.0 <= self.crossover_probability <= 1.0):
+            raise ValidationError(
+                f"crossover_probability must lie in [0, 1], got {self.crossover_probability}."
+            )
+        if not (0.0 <= self.mutation_probability <= 1.0):
+            raise ValidationError(
+                f"mutation_probability must lie in [0, 1], got {self.mutation_probability}."
+            )
+        if self.algorithm in ("genetic_algorithm", "nsga2"):
+            if not (0 <= self.elite_count < self.population_size):
+                raise ValidationError(
+                    f"elite_count must satisfy 0 <= elite_count < population_size "
+                    f"(population_size={self.population_size}), got {self.elite_count}."
+                )
+            if not (2 <= self.tournament_size <= self.population_size):
+                raise ValidationError(
+                    f"tournament_size must satisfy 2 <= tournament_size <= population_size "
+                    f"(population_size={self.population_size}), got {self.tournament_size}."
+                )
+        else:
+            if self.elite_count < 0:
+                raise ValidationError(f"elite_count must be non-negative, got {self.elite_count}.")
+            if self.tournament_size < 2:
+                raise ValidationError(
+                    f"tournament_size must be at least 2, got {self.tournament_size}."
+                )
+        if not (0.0 <= self.inertia_weight <= 2.0):
+            raise ValidationError(f"inertia_weight must lie in [0, 2], got {self.inertia_weight}.")
+        if self.cognitive_coefficient < 0.0:
+            raise ValidationError("cognitive_coefficient must be non-negative.")
+        if self.social_coefficient < 0.0:
+            raise ValidationError("social_coefficient must be non-negative.")
+        if not (0.0 < self.velocity_limit <= 1.0):
+            raise ValidationError(f"velocity_limit must lie in (0, 1], got {self.velocity_limit}.")
         if self.max_evaluations > self.evaluation_limit:
             raise StudySizeExceededError(
                 f"Optimization requests max_evaluations={self.max_evaluations}, which "
@@ -185,6 +327,7 @@ def should_stop(
     objective: Objective,
     config: OptimizationConfig,
     consecutive_failures: int,
+    generation: int | None = None,
 ) -> StopReason | None:
     """Check the shared stopping conditions every algorithm in this package uses.
 
@@ -199,14 +342,36 @@ def should_stop(
         config: The run's configuration.
         consecutive_failures: How many evaluations have failed in a row
             immediately before this check.
+        generation: The current generation/iteration index, for a
+            population-based algorithm checking ``config.max_generations``
+            (Version 33). ``None`` (the default) skips this check --
+            random search and coordinate search have no generation
+            concept and never pass it.
 
     Returns:
         The :class:`StopReason` to stop for, or ``None`` to continue.
     """
     if history.n_evaluations >= config.max_evaluations:
         return StopReason.MAX_EVALUATIONS
+    if (
+        generation is not None
+        and config.max_generations is not None
+        and generation >= config.max_generations
+    ):
+        return StopReason.MAX_GENERATIONS
     if consecutive_failures >= config.max_consecutive_failures:
         return StopReason.FAILED
+    if config.target_objective is not None:
+        best = history.best_feasible(objective)
+        if best is not None:
+            value = best.objective_values[objective.name]
+            reached = (
+                value <= config.target_objective
+                if objective.direction is ObjectiveDirection.MINIMIZE
+                else value >= config.target_objective
+            )
+            if reached:
+                return StopReason.TARGET_REACHED
     steps = compute_convergence(history, objective) if history.n_evaluations > 0 else []
     if len(steps) >= config.patience:
         recent = steps[-config.patience :]
@@ -221,6 +386,7 @@ def should_stop(
 __all__ = [
     "DEFAULT_EVALUATION_LIMIT",
     "DEFAULT_MAX_EVALUATIONS",
+    "DEFAULT_MAX_GENERATIONS",
     "SUPPORTED_ALGORITHMS",
     "SUPPORTED_CONSTRAINT_HANDLING",
     "OptimizationAlgorithm",

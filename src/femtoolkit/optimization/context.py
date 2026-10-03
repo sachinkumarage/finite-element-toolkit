@@ -7,7 +7,7 @@ should depend on the other.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -36,11 +36,25 @@ class DesignContext:
             (typically by returning ``None``, which
             :mod:`femtoolkit.optimization.evaluation` treats as an
             evaluation failure).
+        metadata: A mutable scratch dictionary an objective or
+            constraint function may write diagnostic information into
+            (Version 33) -- for example, a robust/uncertainty-aware
+            objective (:mod:`femtoolkit.optimization.robust`) records
+            the statistic used and the underlying Monte Carlo sample
+            count here. ``evaluate_design`` copies this dictionary into
+            the resulting
+            :class:`~femtoolkit.optimization.evaluation.DesignEvaluation`'s
+            own ``metadata`` field. The dataclass itself is frozen (its
+            fields cannot be reassigned), but this dictionary's
+            *contents* remain mutable by design, exactly like a shared
+            scratch pad passed to every objective/constraint call for
+            one design.
     """
 
     design_variables: dict[str, Any]
     project: Project
     run: SimulationRun
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 __all__ = ["DesignContext"]

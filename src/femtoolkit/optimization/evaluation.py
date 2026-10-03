@@ -149,6 +149,19 @@ class DesignEvaluation:
             or :attr:`~femtoolkit.verification.status.VerificationStatus.NOT_RUN`.
         error_message: A human-readable description of why the design
             is ``FAILED``/``INVALID``, or ``None``.
+        generation: The generation/iteration index a population-based
+            algorithm (Version 33: differential evolution, genetic
+            algorithm, particle swarm, NSGA-II) evaluated this design
+            in, or ``None`` for an algorithm with no generation concept
+            (random search, coordinate search) or a baseline
+            evaluation.
+        metadata: Free-form diagnostic information copied from the
+            evaluation's :class:`~femtoolkit.optimization.context.DesignContext`
+            (Version 33) -- for example, a robust/uncertainty-aware
+            objective or constraint
+            (:mod:`femtoolkit.optimization.robust`) records the
+            statistic used and the underlying Monte Carlo sample count
+            here. Empty for an ordinary deterministic evaluation.
     """
 
     design_id: str
@@ -161,6 +174,8 @@ class DesignEvaluation:
     execution_time_seconds: float | None = None
     verification_status: VerificationStatus = VerificationStatus.NOT_RUN
     error_message: str | None = None
+    generation: int | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     @property
     def is_feasible(self) -> bool:
@@ -225,6 +240,7 @@ def evaluate_design(
     objectives: list[Objective],
     constraints: list[Constraint],
     run_manager: SimulationRunManager,
+    generation: int | None = None,
 ) -> DesignEvaluation:
     """Evaluate one design: build its scenario, run it, and score its objectives/constraints.
 
@@ -240,6 +256,11 @@ def evaluate_design(
         objectives: The problem's objectives.
         constraints: The problem's constraints.
         run_manager: The run manager to execute the design's scenario with.
+        generation: The generation/iteration index this design belongs
+            to, for a population-based algorithm (Version 33) --
+            carried through unchanged to the returned
+            :class:`DesignEvaluation`. ``None`` for algorithms with no
+            generation concept.
 
     Returns:
         A fully populated :class:`DesignEvaluation`.
@@ -252,6 +273,7 @@ def evaluate_design(
             run_id=None,
             status=DesignStatus.INVALID,
             error_message=reason,
+            generation=generation,
         )
 
     parameter_overrides = {variable.path: values[variable.name] for variable in design_variables}
@@ -273,6 +295,7 @@ def evaluate_design(
             execution_time_seconds=run.execution_time_seconds,
             verification_status=run.verification_status,
             error_message=run.error_message,
+            generation=generation,
         )
 
     context = DesignContext(design_variables=dict(values), project=project, run=run)
@@ -289,6 +312,8 @@ def evaluate_design(
                 execution_time_seconds=run.execution_time_seconds,
                 verification_status=run.verification_status,
                 error_message=f"Objective {objective.name!r} could not be evaluated.",
+                generation=generation,
+                metadata=dict(context.metadata),
             )
         objective_values[objective.name] = value
 
@@ -305,6 +330,8 @@ def evaluate_design(
                 execution_time_seconds=run.execution_time_seconds,
                 verification_status=run.verification_status,
                 error_message=f"Constraint {constraint.name!r} could not be evaluated.",
+                generation=generation,
+                metadata=dict(context.metadata),
             )
         violation = constraint.violation(value)
         total_violation += violation
@@ -331,6 +358,8 @@ def evaluate_design(
         total_violation=total_violation,
         execution_time_seconds=run.execution_time_seconds,
         verification_status=run.verification_status,
+        generation=generation,
+        metadata=dict(context.metadata),
     )
 
 

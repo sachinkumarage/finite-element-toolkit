@@ -12,6 +12,7 @@ from femtoolkit.optimization.evaluation import DesignEvaluation
 from femtoolkit.optimization.history import OptimizationHistory
 from femtoolkit.optimization.objectives import Objective
 from femtoolkit.optimization.pareto import pareto_front
+from femtoolkit.optimization.robust import RobustDesignConfig
 from femtoolkit.optimization.variables import DesignVariable
 from femtoolkit.studies.comparison import absolute_difference, percentage_change
 
@@ -36,6 +37,10 @@ class OptimizationResult:
         history: Every design evaluated during the search.
         stop_reason: Why the run stopped.
         generated_at: ISO-8601 UTC timestamp when this result was produced.
+        robust_config: The run's uncertainty-aware (robust) design
+            configuration (Version 33), or ``None`` for a purely
+            deterministic run -- see
+            :mod:`femtoolkit.optimization.robust`.
     """
 
     problem_name: str
@@ -46,6 +51,7 @@ class OptimizationResult:
     history: OptimizationHistory
     stop_reason: StopReason
     generated_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
+    robust_config: RobustDesignConfig | None = None
 
     @property
     def is_multi_objective(self) -> bool:

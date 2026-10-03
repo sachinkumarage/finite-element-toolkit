@@ -120,6 +120,104 @@ class OptimizationHistory:
 
 
 @dataclass(frozen=True)
+class GenerationSummary:
+    """Aggregated statistics for one generation of a population-based algorithm (Version 33).
+
+    Attributes:
+        generation: The generation/iteration index.
+        n_evaluations: How many designs were evaluated in this generation.
+        n_feasible: How many of those were feasible.
+        n_infeasible: How many were infeasible.
+        n_failed: How many failed or were invalid.
+        best_feasible_objective: The best feasible objective value found
+            *within this generation*, or ``None`` if none was feasible.
+        pareto_front_size: How many of this generation's own evaluations
+            are non-dominated among each other (see
+            :func:`~femtoolkit.optimization.pareto.pareto_front`),
+            meaningful only for a multi-objective problem.
+    """
+
+    generation: int
+    n_evaluations: int
+    n_feasible: int
+    n_infeasible: int
+    n_failed: int
+    best_feasible_objective: float | None
+    pareto_front_size: int
+
+
+def generation_summaries(
+    history: OptimizationHistory, objectives: list[Objective]
+) -> list[GenerationSummary]:
+    """Summarize a population-based algorithm's history generation by generation.
+
+    **Not necessarily monotonically improving.** Unlike
+    :func:`compute_convergence`'s running best-so-far series, each
+    generation's own ``best_feasible_objective`` here describes *that
+    generation's* evaluations alone -- a later generation's best value
+    can be worse than an earlier one's (e.g. differential evolution only
+    replaces a population member when a trial strictly improves on it,
+    so a generation that happens to produce few successful replacements
+    is not evidence the search regressed). Track the running best-so-far
+    value via :func:`compute_convergence` instead when that distinction
+    matters.
+
+    Args:
+        history: The optimization history to summarize. Evaluations
+            with ``generation is None`` (random search, coordinate
+            search, and any baseline evaluation) are excluded.
+        objectives: The problem's objectives. The first is used to
+            report each generation's best feasible value; the full list
+            defines the objective vector for ``pareto_front_size``
+            (meaningful only for a multi-objective problem -- for a
+            single objective, ``pareto_front_size`` is simply the count
+            of feasible designs tied for the best value).
+
+    Returns:
+        One :class:`GenerationSummary` per distinct generation index
+        present in ``history``, in ascending generation order.
+    """
+    from femtoolkit.optimization.pareto import pareto_front as _pareto_front
+
+    primary_objective = objectives[0]
+    by_generation: dict[int, list[DesignEvaluation]] = {}
+    for evaluation in history.evaluations:
+        if evaluation.generation is None:
+            continue
+        by_generation.setdefault(evaluation.generation, []).append(evaluation)
+
+    summaries: list[GenerationSummary] = []
+    for generation in sorted(by_generation):
+        evaluations = by_generation[generation]
+        feasible = [e for e in evaluations if e.status is DesignStatus.FEASIBLE]
+        infeasible = [e for e in evaluations if e.status is DesignStatus.INFEASIBLE]
+        failed = [
+            e for e in evaluations if e.status in (DesignStatus.FAILED, DesignStatus.INVALID)
+        ]
+        best_value: float | None = None
+        for evaluation in feasible:
+            candidate_value = evaluation.objective_values[primary_objective.name]
+            if best_value is None:
+                best_value = candidate_value
+            elif primary_objective.direction.value == "minimize":
+                best_value = min(best_value, candidate_value)
+            else:
+                best_value = max(best_value, candidate_value)
+        summaries.append(
+            GenerationSummary(
+                generation=generation,
+                n_evaluations=len(evaluations),
+                n_feasible=len(feasible),
+                n_infeasible=len(infeasible),
+                n_failed=len(failed),
+                best_feasible_objective=best_value,
+                pareto_front_size=len(_pareto_front(evaluations, objectives)),
+            )
+        )
+    return summaries
+
+
+@dataclass(frozen=True)
 class ConvergenceStep:
     """The running best-feasible objective value and its improvement at one evaluation.
 
@@ -188,6 +286,8 @@ def compute_convergence(
 __all__ = [
     "DEFAULT_CONVERGENCE_EPSILON",
     "ConvergenceStep",
+    "GenerationSummary",
     "OptimizationHistory",
     "compute_convergence",
+    "generation_summaries",
 ]

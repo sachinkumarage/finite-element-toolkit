@@ -14,7 +14,7 @@ from matplotlib.figure import Figure
 
 from femtoolkit.exceptions import ValidationError
 from femtoolkit.optimization.evaluation import DesignEvaluation, DesignStatus
-from femtoolkit.optimization.history import OptimizationHistory
+from femtoolkit.optimization.history import GenerationSummary, OptimizationHistory
 from femtoolkit.optimization.objectives import Objective
 from femtoolkit.optimization.variables import DesignVariable
 from femtoolkit.postprocessing.visualization import plot_line
@@ -199,9 +199,171 @@ def plot_pareto_front(
     return figure
 
 
+def plot_pareto_front_3d(
+    evaluations: list[DesignEvaluation],
+    objectives: list[Objective],
+    pareto: list[DesignEvaluation],
+    baseline: DesignEvaluation | None = None,
+) -> Figure:
+    """Plot the Pareto front for a three-objective optimization (Version 33).
+
+    The same feasible/infeasible/Pareto/baseline labeling convention as
+    :func:`plot_pareto_front`, extended to three dimensions.
+
+    Args:
+        evaluations: Every evaluated design.
+        objectives: Exactly three objectives to plot.
+        pareto: The non-dominated subset.
+        baseline: The baseline design's evaluation, if it should be
+            marked separately.
+
+    Returns:
+        A :class:`matplotlib.figure.Figure` with one 3D scatter plot.
+
+    Raises:
+        ValidationError: If ``objectives`` does not have exactly three entries.
+    """
+    if len(objectives) != 3:
+        raise ValidationError(
+            f"plot_pareto_front_3d requires exactly three objectives, got {len(objectives)}."
+        )
+    x_objective, y_objective, z_objective = objectives
+
+    figure = Figure(figsize=(7.5, 6.5))
+    axes = figure.add_subplot(111, projection="3d")
+
+    pareto_ids = {evaluation.design_id for evaluation in pareto}
+    feasible_non_pareto = [
+        evaluation
+        for evaluation in evaluations
+        if evaluation.status is DesignStatus.FEASIBLE and evaluation.design_id not in pareto_ids
+    ]
+    infeasible = [
+        e
+        for e in evaluations
+        if e.status is not DesignStatus.FEASIBLE
+        and all(o.name in e.objective_values for o in objectives)
+    ]
+
+    def _xyz(points: list[DesignEvaluation]) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        x = np.array([p.objective_values[x_objective.name] for p in points])
+        y = np.array([p.objective_values[y_objective.name] for p in points])
+        z = np.array([p.objective_values[z_objective.name] for p in points])
+        return x, y, z
+
+    if infeasible:
+        x, y, z = _xyz(infeasible)
+        axes.scatter(x, y, z, c="lightgray", marker="x", label="Infeasible")
+    if feasible_non_pareto:
+        x, y, z = _xyz(feasible_non_pareto)
+        axes.scatter(x, y, z, c="#4C72B0", marker="o", label="Feasible")
+    if pareto:
+        x, y, z = _xyz(pareto)
+        axes.scatter(x, y, z, c="#C44E52", marker="o", label="Pareto (non-dominated)")
+    if (
+        baseline is not None
+        and all(o.name in baseline.objective_values for o in objectives)
+    ):
+        axes.scatter(
+            [baseline.objective_values[x_objective.name]],
+            [baseline.objective_values[y_objective.name]],
+            [baseline.objective_values[z_objective.name]],
+            c="black",
+            marker="*",
+            s=150,
+            label="Baseline",
+        )
+
+    axes.set_xlabel(f"{x_objective.name} ({x_objective.direction.value})")
+    axes.set_ylabel(f"{y_objective.name} ({y_objective.direction.value})")
+    axes.set_zlabel(f"{z_objective.name} ({z_objective.direction.value})")
+    axes.set_title("Pareto Front (3 objectives)")
+    axes.legend()
+    figure.tight_layout()
+    return figure
+
+
+def plot_generation_objective_history(
+    summaries: list[GenerationSummary], objective: Objective
+) -> Figure:
+    """Plot a population-based algorithm's best-feasible objective value per generation.
+
+    Args:
+        summaries: Per-generation summaries, from
+            :func:`~femtoolkit.optimization.history.generation_summaries`.
+        objective: The objective being tracked (for axis labeling only).
+
+    Returns:
+        A :class:`matplotlib.figure.Figure` with one line plot. Unlike
+        :func:`plot_objective_history`'s running best-so-far series,
+        each point here describes *that generation's own* evaluations
+        and is not guaranteed to improve monotonically from one
+        generation to the next (see
+        :func:`~femtoolkit.optimization.history.generation_summaries`).
+
+    Raises:
+        ValidationError: If ``summaries`` is empty.
+    """
+    if not summaries:
+        raise ValidationError(
+            "plot_generation_objective_history requires at least one generation summary."
+        )
+    x_values = np.array([summary.generation for summary in summaries])
+    y_values = np.array(
+        [
+            summary.best_feasible_objective
+            if summary.best_feasible_objective is not None
+            else np.nan
+            for summary in summaries
+        ]
+    )
+    units_suffix = f" ({objective.units})" if objective.units else ""
+    return plot_line(
+        x_values,
+        y_values,
+        xlabel="Generation",
+        ylabel=f"Best feasible {objective.name} in generation{units_suffix}",
+        title=f"Objective per Generation: {objective.name} ({objective.direction.value})",
+    )
+
+
+def plot_pareto_front_size_history(summaries: list[GenerationSummary]) -> Figure:
+    """Plot the non-dominated front size within each generation (Version 33).
+
+    Meaningful for a multi-objective, population-based run -- shows how
+    many of each generation's own evaluations are mutually non-dominated.
+
+    Args:
+        summaries: Per-generation summaries, from
+            :func:`~femtoolkit.optimization.history.generation_summaries`.
+
+    Returns:
+        A :class:`matplotlib.figure.Figure` with one line plot.
+
+    Raises:
+        ValidationError: If ``summaries`` is empty.
+    """
+    if not summaries:
+        raise ValidationError(
+            "plot_pareto_front_size_history requires at least one generation summary."
+        )
+    x_values = np.array([summary.generation for summary in summaries])
+    y_values = np.array([summary.pareto_front_size for summary in summaries])
+    return plot_line(
+        x_values,
+        y_values,
+        xlabel="Generation",
+        ylabel="Non-dominated front size (within generation)",
+        title="Pareto Front Size per Generation",
+    )
+
+
 __all__ = [
     "plot_constraint_violation_history",
     "plot_design_variable_history",
+    "plot_generation_objective_history",
     "plot_objective_history",
     "plot_pareto_front",
+    "plot_pareto_front_3d",
+    "plot_pareto_front_size_history",
 ]

@@ -1,5 +1,10 @@
 """Optimization report generation: a twenty-section archivable document (Version 32).
 
+Version 33 adds two further sections (21: Algorithm Parameters, 22:
+Robust Design) covering population-based algorithm configuration and
+uncertainty-aware (robust) design, while leaving the original twenty
+sections' numbering and content unchanged.
+
 Extends the Version 30/31 reporting approach to an optimization run.
 Lives in :mod:`femtoolkit.optimization` (not
 :mod:`femtoolkit.studies`/:mod:`femtoolkit.uncertainty`/
@@ -40,7 +45,21 @@ _STOP_REASON_TEXT = {
         "The run was cancelled before finishing; the history up to that point is preserved."
     ),
     "failed": "Too many consecutive evaluations failed in a row.",
+    "max_generations": (
+        "A population-based algorithm reached its configured generation/iteration budget."
+    ),
+    "target_reached": (
+        "The best-feasible objective value reached the user-supplied target_objective -- "
+        "this reflects the configured goal being met, not evidence of a global optimum."
+    ),
 }
+
+_POPULATION_BASED_ALGORITHMS = (
+    "differential_evolution",
+    "genetic_algorithm",
+    "particle_swarm",
+    "nsga2",
+)
 
 
 @dataclass
@@ -302,6 +321,75 @@ def render_optimization_report_markdown(report: OptimizationReport) -> str:
         "No distributed/parallel/GPU optimization is implemented in this version -- "
         "every evaluation ran sequentially."
     )
+    lines.append("")
+
+    lines += ["## 21. Algorithm Parameters", ""]
+    if config.algorithm in _POPULATION_BASED_ALGORITHMS:
+        lines.append(f"- **Population size:** {config.population_size}")
+        lines.append(f"- **Max generations:** {config.max_generations}")
+        if config.algorithm == "differential_evolution":
+            lines.append(f"- **Mutation factor (F):** {config.mutation_factor}")
+            lines.append(f"- **Crossover probability (CR):** {config.crossover_probability}")
+        if config.algorithm in ("genetic_algorithm", "nsga2"):
+            lines.append(f"- **Crossover probability:** {config.crossover_probability}")
+            lines.append(f"- **Mutation probability:** {config.mutation_probability}")
+            lines.append(f"- **Tournament size:** {config.tournament_size}")
+        if config.algorithm == "genetic_algorithm":
+            lines.append(f"- **Elite count:** {config.elite_count}")
+        if config.algorithm == "particle_swarm":
+            lines.append(f"- **Inertia weight (w):** {config.inertia_weight}")
+            lines.append(f"- **Cognitive coefficient (c1):** {config.cognitive_coefficient}")
+            lines.append(f"- **Social coefficient (c2):** {config.social_coefficient}")
+            lines.append(f"- **Velocity limit:** {config.velocity_limit}")
+        n_generations = len(
+            {e.generation for e in result.history.evaluations if e.generation is not None}
+        )
+        lines.append(f"- **Generations actually run:** {n_generations}")
+    else:
+        lines.append(
+            f"Not applicable -- `{config.algorithm}` has no population/generation "
+            "parameters."
+        )
+    lines.append(f"- **Termination reason:** {result.stop_reason.value}")
+    lines.append("")
+
+    lines += ["## 22. Robust Design", ""]
+    robust_config = result.robust_config
+    if robust_config is None or not robust_config.uncertainty_enabled:
+        lines.append("Robust (uncertainty-aware) design was not used for this optimization run.")
+    else:
+        lines.append(f"- **Sampling method:** {robust_config.sampling_method}")
+        lines.append(f"- **Sample count per design:** {robust_config.sample_count}")
+        lines.append(f"- **Random seed:** {robust_config.random_seed}")
+        lines.append(f"- **Objective statistic:** {robust_config.objective_statistic}")
+        lines.append(f"- **Constraint statistic:** {robust_config.constraint_statistic}")
+        lines.append(f"- **Percentile (if used):** {robust_config.percentile}")
+        lines.append(f"- **Failure policy:** {robust_config.failure_policy}")
+        lines.append(
+            f"- **Maximum total FEA evaluations:** {robust_config.maximum_total_evaluations}"
+        )
+        lines.append(
+            "- **Note:** every statistic here is an empirical estimate from a finite "
+            "Monte Carlo sample at one design point -- never a rigorous reliability "
+            "index (no FORM/SORM is implemented)."
+        )
+        best = result.best_feasible() if not result.is_multi_objective else None
+        if best is not None and best.metadata:
+            if "robust_objectives" in best.metadata:
+                lines.append("")
+                lines.append("Best feasible candidate's robust objective diagnostics:")
+                for quantity, info in best.metadata["robust_objectives"].items():
+                    lines.append(
+                        f"  - {quantity}: {info['statistic']}={info['value']:.6g} "
+                        f"(n_samples={info['n_samples']})"
+                    )
+            if "robust_constraints" in best.metadata:
+                lines.append("Best feasible candidate's robust constraint diagnostics:")
+                for quantity, info in best.metadata["robust_constraints"].items():
+                    lines.append(
+                        f"  - {quantity}: {info['statistic']}={info['value']:.6g} "
+                        f"(n_samples={info['n_samples']})"
+                    )
     lines.append("")
 
     if report.conclusions:

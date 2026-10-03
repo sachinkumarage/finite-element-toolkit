@@ -1,14 +1,15 @@
-# Engineering Optimization & Design Exploration (Version 32)
+# Engineering Optimization & Design Exploration (Version 32/33)
 
 Answers the question Version 30/31 left to a human running studies by
 hand: *given a design space and an existing simulation, which designs
 are worth looking at?* This document covers design variables, the
-design space, objectives, constraints, feasibility, the two search
-algorithms, multi-objective optimization and Pareto fronts, and
+design space, objectives, constraints, feasibility, the six search
+algorithms (two single-point, four population-based), multi-objective
+optimization and Pareto fronts, robust (uncertainty-aware) design, and
 reproducibility. See [`docs/studies.md`](studies.md) for the Version 30
 parameter-study framework this version builds on and
 [`docs/uncertainty.md`](uncertainty.md) for the Version 31 statistical
-tools it can optionally reference, plus the main
+tools Version 33's robust design reuses directly, plus the main
 [README](../README.md#version-32) for a shorter overview.
 
 ## Design variables and the design space
@@ -133,10 +134,12 @@ reports by how much a quantity changed.
 
 ## Algorithms
 
-Both algorithms implement one shared interface
-(`OptimizationAlgorithm.optimize`) so any algorithm can search any
-`OptimizationProblem`. No SciPy dependency was added -- both are native
-implementations, kept deliberately simple enough to read end to end.
+Six algorithms -- two single-point (Version 32) and four population-based
+including NSGA-II (Version 33, see below) -- all implement one shared
+interface (`OptimizationAlgorithm.optimize`) so any algorithm can search
+any `OptimizationProblem`. No SciPy dependency was added -- every
+algorithm is a native implementation, kept deliberately simple enough
+to read end to end.
 
 ### Bounded random search
 
@@ -189,6 +192,21 @@ best feasible value seen evolved evaluation by evaluation. This history
 is always fully inspectable -- never a black box summarized only as a
 final answer.
 
+For a population-based algorithm (Version 33), every evaluation also
+carries its `generation` index (`None` for random/coordinate search,
+which have no generation concept) and a `metadata` dictionary (used by
+robust objectives/constraints to record diagnostic information -- see
+"Robust (uncertainty-aware) design" below). `generation_summaries(history,
+objectives)` aggregates per-generation statistics (evaluation/feasible/
+infeasible/failed counts, that generation's own best feasible value, and
+non-dominated front size among that generation's evaluations). **A
+later generation's own best value is not guaranteed to improve on an
+earlier one's** -- e.g. differential evolution only replaces a
+population member when a trial strictly improves on it, so a generation
+with few successful replacements is not evidence of regression. Track
+the running best-so-far value via `compute_convergence` instead when
+that distinction matters.
+
 ## Convergence and stopping criteria
 
 ```text
@@ -207,6 +225,11 @@ CONVERGED        -- objective improvement stayed below tolerance for `patience`
                      consecutive evaluations.
 CANCELLED        -- the run was cancelled (GUI execution).
 FAILED           -- the consecutive-failure threshold was exceeded.
+MAX_GENERATIONS  -- (Version 33) a population-based algorithm reached its
+                     configured generation/iteration budget first.
+TARGET_REACHED   -- (Version 33) the best-feasible objective value reached a
+                     user-supplied `target_objective`; this reflects the
+                     configured goal being met, not evidence of optimality.
 ```
 
 `OptimizationResult.stop_reason` and every rendered report always state
@@ -287,15 +310,17 @@ are kept clearly separate:
 - **Optimization direction** (this version) is a search decision made
   by an algorithm proposing new candidate designs.
 
-Correlation is never used as an optimization gradient. The one
-integration point is `robust_objective_mean`, an optional, explicitly
-lightweight objective-function builder that runs a real Version 31
-`MonteCarloConfig`/`MonteCarloRunner` study at a given design point and
-returns the mean of a named output quantity -- useful as one building
-block toward uncertainty-aware design, but not itself a robust
-optimization algorithm. `OptimizationMode.UNCERTAINTY_AWARE` exists on
-`OptimizationProblem` purely as an informational label in this version;
-it does not change how either search algorithm behaves.
+Correlation is never used as an optimization gradient. Version 32's
+`robust_objective_mean` (an optional, lightweight objective-function
+builder returning a Monte Carlo mean) remains available unchanged;
+Version 33's `femtoolkit.optimization.robust` generalizes this into a
+full set of robust objective/constraint statistics (mean, percentile,
+exceedance probability, ...) with explicit cost-control configuration
+-- see "Robust (uncertainty-aware) design" above. `OptimizationMode.UNCERTAINTY_AWARE`
+still exists on `OptimizationProblem` purely as an informational label;
+it does not itself change how any search algorithm behaves -- genuine
+uncertainty-aware evaluation always comes from how an objective or
+constraint was built, never from this label alone.
 
 ## Categorical design variables
 
@@ -390,42 +415,358 @@ Version 30 `SimulationRun`/`Project` types directly.
 
 ## GUI integration
 
-A new Optimization page: define design variables (with bounds, type,
-units), objectives (direction, quantity), and constraints (relation,
-limit); choose and configure an algorithm (max evaluations, tolerance,
-seed); evaluate the baseline; run the search with a progress display;
-and review results -- for a single-objective problem, the best feasible
+An Optimization page: define design variables (with bounds, type,
+units); optionally enable **Robust Design** (define uncertain
+parameters, sample count, seed, sampling method, objective/constraint
+statistic, percentile, and the safety ceiling, with the estimated total
+FEA count shown live before running); define objectives (direction,
+quantity -- automatically evaluated as a robust statistic instead of a
+deterministic value when Robust Design is enabled) and constraints
+(relation, limit); choose and configure an algorithm, including the
+Version 33 population-based algorithms and NSGA-II (population size,
+max generations, and each algorithm's own parameters -- mutation
+factor/crossover probability for differential evolution; crossover/
+mutation probability, tournament size, elite count for the genetic
+algorithm; inertia weight, cognitive/social coefficients, velocity
+limit for particle swarm); evaluate the baseline; run the search; and
+review results -- for a single-objective problem, the best feasible
 candidate compared against the baseline (explicitly labeled "best
 feasible according to the defined objective and constraints," never
-"best overall"); for a multi-objective problem, the non-dominated set
-with no design singled out as a winner.
+"best overall"), its robust-evaluation diagnostics when applicable, and
+convergence plots (including a per-generation plot for population-based
+runs, explicitly captioned "not necessarily monotonically improving");
+for a multi-objective problem, the non-dominated set with no design
+singled out as a winner.
+
+## Population-based optimization (Version 33)
+
+**Engineering concept.** A single-point search (random search,
+coordinate search) only ever looks at the neighborhood of one current
+design. A **population-based** algorithm instead maintains a whole set
+of candidate designs at once, evolving that set across successive
+**generations**:
+
+- **Population** -- the set of candidate designs considered together
+  at one generation.
+- **Candidate solution** -- one design in the population, represented
+  as a point in the design space.
+- **Fitness/objective evaluation** -- scoring a candidate, exactly the
+  same `evaluate_design` pipeline every algorithm in this package uses
+  (no separate "fitness function" concept exists here).
+- **Exploration** -- spreading the population across different regions
+  of the design space, so the search does not get stuck near its
+  starting point.
+- **Exploitation** -- concentrating the population toward the better
+  regions already found, refining a promising design further.
+- **Mutation** -- a random perturbation that introduces new candidate
+  designs the population would not otherwise reach.
+- **Crossover** -- combining two existing candidates' design-variable
+  values into a new candidate, mixing information already present in
+  the population.
+- **Selection** -- choosing which candidates survive, reproduce, or
+  seed the next generation, almost always via the same
+  feasibility-first comparison described above
+  (`is_better_evaluation`), never a separately computed fitness score.
+
+**Why this matters for engineering design problems.** A real FEA
+objective (displacement, stress, mass as a function of geometry and
+material) is rarely differentiable in a form usable by gradient-based
+optimization, and a gradient may not exist at all for a discrete or
+categorical design variable. A population-based algorithm needs no
+gradient -- only the ability to evaluate a candidate design and compare
+it to another, which `evaluate_design`/`is_better_evaluation` already
+provide for every algorithm in this package, single-point or
+population-based alike.
+
+Mixed-type design variables (continuous, integer, categorical) are
+searched by every population-based algorithm using one shared
+real-valued "box" encoding (`femtoolkit.optimization.algorithms._encoding`):
+a continuous or integer variable maps to its own `[lower, upper]`
+range, and a categorical variable maps to `[0, len(categories) - 1]`,
+the index into its category list -- the same "category as a list
+position" idea coordinate search already uses, generalized to
+continuous arithmetic.
+
+### Differential evolution
+
+```text
+v = x_r1 + F * (x_r2 - x_r3)
+```
+
+For each target vector `x_i` in the population, three *other* distinct
+population members `x_r1`, `x_r2`, `x_r3` are chosen at random. The
+mutant vector `v` above uses the population's own spread as a
+self-adapting step size: early on, when candidates are spread out,
+steps are large (exploration); as the population converges, the same
+formula automatically takes smaller steps (exploitation) -- no
+step-size schedule needs to be hand-tuned. A trial vector is then built
+by binomial crossover between `v` and `x_i` (each component taken from
+`v` with probability `CR`, with at least one component always taken
+from `v`), evaluated, and kept in place of `x_i` only if it is better
+(feasibility-first).
+
+Configurable: `population_size` (at least 4, since mutation needs
+three *other* distinct members), `mutation_factor` (`F`, in `(0, 2]`),
+`crossover_probability` (`CR`, in `[0, 1]`), `max_generations`,
+`max_evaluations`, `seed`, and each design variable's own bounds.
+
+### Genetic algorithm
+
+```text
+Elitism: copy the best `elite_count` individuals unchanged
+Fill the rest of the next generation:
+    Select two parents (tournament selection)
+    Crossover (uniform, with probability crossover_probability)
+    Mutation (per-gene random reset, with probability mutation_probability)
+```
+
+One selection strategy and one crossover/mutation pair, deliberately --
+a clean, well-tested foundation rather than a large configurable
+library of interchangeable operators. **Tournament selection** draws
+`tournament_size` individuals at random and keeps the best one
+(feasibility-first); **uniform crossover** builds a child by taking
+each gene independently from one parent or the other; **random-reset
+mutation** redraws a mutated gene uniformly within its own bounds
+(coarser, and therefore typically less locally precise, than
+differential evolution's differential-vector mutation or particle swarm's
+velocity-based refinement -- a real, observed difference, not a defect).
+**Elitism** copies the `elite_count` best individuals into the next
+generation unchanged, so the best design found so far is never lost to
+an unlucky generation of crossover/mutation.
+
+Configurable: `population_size`, `crossover_probability`,
+`mutation_probability`, `elite_count` (`0 <= elite_count <
+population_size`), `tournament_size` (`2 <= tournament_size <=
+population_size`), `max_generations`, `max_evaluations`, `seed`.
+
+### Particle swarm optimization
+
+```text
+v_i <- w * v_i + c1 * r1 * (pbest_i - x_i) + c2 * r2 * (gbest - x_i)
+x_i <- x_i + v_i
+```
+
+Each particle has a position (a candidate design) and a velocity. The
+velocity update's three terms: `w * v_i` (**inertia**) keeps a particle
+moving roughly the way it already was -- without it, particles would
+jitter toward the best point found so far and lose any ability to
+explore; `c1 * r1 * (pbest_i - x_i)` (the **cognitive** term) pulls a
+particle back toward the best position *it personally* has found;
+`c2 * r2 * (g - x_i)` (the **social** term) pulls every particle
+toward the best position *the whole swarm* has found. `r1`/`r2` are
+independent random numbers in `[0, 1)` redrawn every step. Velocity is
+clamped to `velocity_limit` (a fraction of each variable's range, the
+same convention `step_size` uses for coordinate search) before the
+position update, and the resulting position is clipped back into
+bounds.
+
+Configurable: `population_size` (particle count), `inertia_weight`
+(`w`, in `[0, 2]`), `cognitive_coefficient` (`c1`), `social_coefficient`
+(`c2`), `velocity_limit` (in `(0, 1]`), `max_generations`,
+`max_evaluations`, `seed`.
+
+## Multi-objective optimization with NSGA-II (Version 33)
+
+Version 32 already established Pareto dominance and `pareto_front`
+(non-dominated filtering over a complete evaluation history). NSGA-II
+(Deb et al., 2002) is a *search* algorithm specifically built to evolve
+a population *toward* the Pareto front rather than hoping random or
+single-point sampling happens to land near it.
+
+**Non-dominated sorting** (`fast_non_dominated_sort`) partitions a
+population into successive fronts: the first front is every design
+nothing else in the population dominates; the second is every design
+dominated only by first-front designs; and so on. Dominance here is
+**constrained dominance** (`constrained_dominates`): a feasible design
+always dominates an infeasible one regardless of objective values;
+between two infeasible designs, the smaller total constraint violation
+wins; two failed/invalid designs are never comparable -- the same
+feasibility-first principle every algorithm in this package already
+applies to single-objective comparisons, generalized to multiple
+objectives.
+
+**Crowding distance** (`crowding_distance`) measures how isolated a
+design is within its own front: for each objective, the front is
+sorted by that objective's value, the two boundary designs (best and
+worst) get infinite distance (always preferred, to preserve the
+trade-off curve's extremes), and every interior design accumulates the
+normalized gap between its two neighbors. When only part of a front
+can survive into the next generation, crowding distance decides which
+subset survives -- keeping the population spread across the whole
+trade-off curve rather than clustering in one region.
+
+**One generation of NSGA-II:**
+
+```text
+Build an offspring population the same size as the parent population:
+    Select two parents by binary tournament (lower rank wins;
+    ties broken by larger crowding distance -- "less crowded")
+    Crossover (uniform) + mutation (per-gene random reset)
+Combine parents + offspring; re-rank into fronts; keep the best
+`population_size` individuals, filling the last admitted front
+by crowding distance (never arbitrarily)
+```
+
+Configurable: the same `population_size`, `crossover_probability`,
+`mutation_probability`, `tournament_size`, `max_generations`,
+`max_evaluations`, `seed` as the genetic algorithm. **NSGA-II never
+selects one "best" solution** -- its job is to produce a good
+approximation of the Pareto front; `OptimizationResult.pareto_front()`
+reports the full non-dominated set from the complete run history, and
+choosing a single preferred trade-off remains an engineering judgment
+this package leaves to the caller.
+
+## Robust (uncertainty-aware) design (Version 33)
+
+**Deterministic vs. robust optimization.** Every algorithm above solves
+`min f(x)` using one fixed set of input parameters per design -- a
+*deterministic* optimization. A real engineering input is often
+uncertain (material scatter, load variability); **robust optimization**
+instead accounts for that uncertainty while still searching over the
+same design variables `x`:
+
+```text
+min E[f(x, xi)]                          (minimize the expected objective)
+Q_0.95(u(x, xi)) <= u_max                 (control a high percentile of a response)
+P(sigma(x, xi) > sigma_allow) <= p_max    (limit an estimated exceedance probability)
+```
+
+where `xi` is an uncertain parameter
+(`femtoolkit.uncertainty.parameters.UncertainParameter`, Version 31).
+This toolkit does not implement a new *algorithm* for this -- every
+algorithm above already works unchanged with any objective/constraint
+function, deterministic or not. `femtoolkit.optimization.robust`
+instead provides the **robust objective/constraint building blocks**:
+`robust_objective_statistic`/`robust_constraint_statistic` run a small
+Version 31 Monte Carlo study (reusing `MonteCarloRunner` directly, no
+second execution path) at each design point and reduce the sampled
+output to one statistic:
+
+- `mean`, `median`, `std`, `coefficient_of_variation`, `min`, `max`
+- `percentile` (with a configurable `percentile`, e.g. 95)
+- `exceedance_probability` (with a configurable `threshold`/`direction`,
+  reusing `femtoolkit.uncertainty.reliability.exceedance_probability`
+  directly)
+
+Every one of these is an **empirical** estimate from a finite Monte
+Carlo sample at one design point -- never a rigorous reliability index
+(no FORM/SORM is implemented anywhere in this toolkit). The statistic
+used, its value, and the underlying sample count are recorded into
+`DesignContext.metadata` and copied onto the resulting
+`DesignEvaluation.metadata`, so a report or GUI can always show exactly
+how a robust objective/constraint value was computed.
+
+`RobustDesignConfig` (`uncertainty_enabled`, `sampling_method`,
+`sample_count`, `random_seed`, `objective_statistic`,
+`constraint_statistic`, `percentile`, `maximum_total_evaluations`,
+`failure_policy`) is strictly opt-in -- `uncertainty_enabled=False` (the
+default) means every objective/constraint is evaluated deterministically,
+exactly as in Version 32. `OptimizationRunner.run()` accepts an optional
+`robust_config` purely for cost-control validation and
+reproducibility/reporting; it is carried onto `OptimizationResult` but
+does not itself change how an objective or constraint is evaluated --
+that is determined entirely by whether the objective/constraint was
+built with `robust_objective_statistic`/`robust_constraint_statistic`.
+
+### Nested simulation cost control
+
+Robust optimization nests three loops:
+
+```text
+optimization evaluations
+        |
+        v
+Monte Carlo samples
+        |
+        v
+FEA simulations
+```
+
+A careless configuration (a large `max_evaluations` combined with a
+large `sample_count`) can silently request an enormous number of FEA
+solves. `estimate_total_fea_count(max_evaluations, robust_config)`
+computes the upper bound (`max_evaluations * sample_count` when robust
+evaluation is enabled), and `validate_robust_budget` -- called by
+`OptimizationRunner.run()` *before* the baseline or any other
+evaluation runs -- rejects a request exceeding
+`robust_config.maximum_total_evaluations` with the same
+`StudySizeExceededError` and "stop before execution, explain how to
+reduce" pattern every prior safety check in this toolkit uses. A
+requested budget is never silently reduced.
+
+## Mathematical optimization benchmarks (Version 33)
+
+`femtoolkit.optimization.benchmarks` provides three well-known
+benchmark functions, each a plain NumPy function with **zero finite
+element dependency** -- directly unit-testable on their own, used to
+verify an algorithm's mechanics (does it converge toward a known
+answer, does it respect bounds, is it reproducible) without the cost or
+noise of a real FEA solve standing in for the objective's mathematical
+behavior:
+
+- **Sphere** -- `f(x) = sum(x_i^2)`, a smooth convex bowl, minimum
+  `f(0, ..., 0) = 0`. The simplest possible sanity check.
+- **Rosenbrock** -- `f(x) = sum(100*(x_{i+1} - x_i^2)^2 + (1 - x_i)^2)`,
+  a curved, narrow valley, minimum `f(1, ..., 1) = 0`. Easy to find the
+  valley, much harder to converge precisely along it.
+- **Rastrigin** -- `f(x) = 10n + sum(x_i^2 - 10*cos(2*pi*x_i))`, a bowl
+  covered in a regular lattice of local minima on top of the sphere
+  shape, minimum `f(0, ..., 0) = 0`. Demonstrates a purely local search
+  (coordinate search) getting trapped in a local minimum a
+  population-based algorithm can escape.
+
+`femtoolkit.optimization.benchmarks.problem_builder` is the (separate,
+clearly-labeled) glue that wraps a benchmark function into a real
+`OptimizationProblem`, so it can be run through the exact same
+`OptimizationRunner` and every algorithm above -- each design variable
+maps to one entry of a minimal project's `loads` list
+(`loads.<i>.magnitude`, which accepts any finite real number, unlike a
+positivity-constrained field such as thickness or Young's modulus).
+Even a "pure math" benchmark still triggers one minimal, inexpensive
+FEA solve per evaluation, since this toolkit has exactly one evaluation
+pipeline -- the benchmark function itself never touches the FEA result.
+
+See `examples/optimization/algorithm_benchmark_comparison.py` for all
+six algorithms run against the same benchmark under the same budget and
+seed, reported side by side with **no overall ranking** -- which
+algorithm performs best is problem-dependent.
 
 ## Explicit scope exclusions (this version)
 
 No machine learning, no topology optimization, no neural networks or
-surrogate models, no commercial-solver integration, no genetic
-algorithms, no particle swarm optimization, no gradient-based or
-adjoint optimization, no automatic CAD-driven shape optimization, no
-distributed/GPU/MPI/cluster optimization, and no full robust
-optimization or FORM/SORM reliability-based optimization. See the
-Version 33 preview in the main README for the planned next direction.
+surrogate models, no commercial-solver integration, no Bayesian
+optimization, no gradient-based or adjoint optimization, no automatic
+CAD-driven shape optimization, no distributed/GPU/MPI/cluster
+optimization, no FORM/SORM or other rigorous reliability method, and no
+stochastic finite elements. See the Version 34 preview in the main
+README for the planned next direction.
 
 ## Limitations
 
 - **No distributed or parallel optimization execution.** Every
   evaluation runs sequentially; nothing here precludes wiring in
   parallel execution later, but none is implemented in this version.
-- **Both algorithms are derivative-free heuristics with no
-  mathematical global-optimality guarantee.** Neither "converged" nor
-  "completed" means a global optimum was found.
+- **No algorithm in this package makes a mathematical global-optimality
+  guarantee.** Neither "converged," "completed," nor "max_generations"
+  means a global optimum was found.
 - **Coordinate search is a local search** and can stop at a local
-  optimum; its step-size-vs-domain-width sensitivity is a real,
+  optimum (directly demonstrated in
+  `examples/optimization/algorithm_benchmark_comparison.py`'s Rosenbrock
+  comparison); its step-size-vs-domain-width sensitivity is a real,
   demonstrated limitation (see "Coordinate search" above).
-- **Only two algorithms are implemented.** No differential evolution,
-  genetic algorithms, particle swarm optimization, or gradient-based
-  methods in this version.
+- **The genetic algorithm's random-reset mutation is coarser than
+  differential evolution's or particle swarm's refinement mechanisms**
+  -- a real, observed precision difference on the sphere benchmark, not
+  a defect; see "Genetic algorithm" above.
 - **No multi-property categorical design variables** (e.g. full
   material catalog selection) -- see "Categorical design variables"
   above.
-- **`OptimizationMode.UNCERTAINTY_AWARE` is informational only** in
-  this version; it does not change search behavior.
+- **Every robust-design statistic is an empirical Monte Carlo estimate**
+  from a finite sample at one design point -- never a rigorous
+  reliability index. A small `sample_count` carries real sampling
+  uncertainty, especially for `exceedance_probability` on a rare event.
+- **`OptimizationMode.UNCERTAINTY_AWARE` remains an informational label**
+  on `OptimizationProblem` -- it does not itself change search
+  behavior; genuine uncertainty-aware evaluation comes entirely from
+  building objectives/constraints with
+  `robust_objective_statistic`/`robust_constraint_statistic`.

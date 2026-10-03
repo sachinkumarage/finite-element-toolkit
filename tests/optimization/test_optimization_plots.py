@@ -16,8 +16,11 @@ from femtoolkit.optimization.objectives import (
 from femtoolkit.optimization.plots import (
     plot_constraint_violation_history,
     plot_design_variable_history,
+    plot_generation_objective_history,
     plot_objective_history,
     plot_pareto_front,
+    plot_pareto_front_3d,
+    plot_pareto_front_size_history,
 )
 from femtoolkit.optimization.problems import OptimizationProblem
 from femtoolkit.optimization.runner import OptimizationRunner
@@ -131,3 +134,93 @@ def test_plot_pareto_front_requires_exactly_two_objectives() -> None:
     single = [Objective(name="f", direction=ObjectiveDirection.MINIMIZE, evaluate=lambda ctx: None)]
     with pytest.raises(ValidationError):
         plot_pareto_front([], single, [])
+
+
+# --- Version 33: plot_pareto_front_3d, generation plots ---
+
+
+def test_plot_pareto_front_3d_requires_exactly_three_objectives() -> None:
+    two = [
+        Objective(name="f1", direction=ObjectiveDirection.MINIMIZE, evaluate=lambda ctx: None),
+        Objective(name="f2", direction=ObjectiveDirection.MINIMIZE, evaluate=lambda ctx: None),
+    ]
+    with pytest.raises(ValidationError):
+        plot_pareto_front_3d([], two, [])
+
+
+def test_plot_pareto_front_3d_returns_figure() -> None:
+    displacement = Objective(
+        name="maximum_displacement", direction=ObjectiveDirection.MINIMIZE,
+        evaluate=from_result_extractor(get_extractor("maximum_displacement")),
+    )
+    mass = Objective(name="mass", direction=ObjectiveDirection.MINIMIZE, evaluate=rectangular_mass)
+    stress = Objective(
+        name="maximum_von_mises_stress", direction=ObjectiveDirection.MINIMIZE,
+        evaluate=from_result_extractor(get_extractor("maximum_von_mises_stress")),
+    )
+    objectives = [displacement, mass, stress]
+    problem = OptimizationProblem(
+        name="plots-3d-test", base_project=_base_project(),
+        design_variables=[_thickness_variable()], objectives=objectives,
+    )
+    config = OptimizationConfig(algorithm="random_search", max_evaluations=15, seed=1)
+    result = OptimizationRunner().run(problem, config)
+
+    figure = plot_pareto_front_3d(
+        result.history.evaluations, objectives, result.pareto_front(), baseline=result.baseline
+    )
+    assert isinstance(figure, Figure)
+
+
+def test_plot_generation_objective_history_returns_figure() -> None:
+    from femtoolkit.optimization.history import generation_summaries
+
+    objective = Objective(
+        name="maximum_displacement", direction=ObjectiveDirection.MINIMIZE,
+        evaluate=from_result_extractor(get_extractor("maximum_displacement")),
+    )
+    problem = OptimizationProblem(
+        name="de-plot-test", base_project=_base_project(),
+        design_variables=[_thickness_variable()], objectives=[objective],
+    )
+    config = OptimizationConfig(
+        algorithm="differential_evolution", population_size=4, max_evaluations=12, seed=1
+    )
+    result = OptimizationRunner().run(problem, config)
+    summaries = generation_summaries(result.history, result.objectives)
+
+    figure = plot_generation_objective_history(summaries, objective)
+    assert isinstance(figure, Figure)
+
+
+def test_plot_generation_objective_history_requires_at_least_one_summary() -> None:
+    objective = Objective(
+        name="f", direction=ObjectiveDirection.MINIMIZE, evaluate=lambda ctx: None
+    )
+    with pytest.raises(ValidationError):
+        plot_generation_objective_history([], objective)
+
+
+def test_plot_pareto_front_size_history_returns_figure() -> None:
+    from femtoolkit.optimization.history import generation_summaries
+
+    displacement = Objective(
+        name="maximum_displacement", direction=ObjectiveDirection.MINIMIZE,
+        evaluate=from_result_extractor(get_extractor("maximum_displacement")),
+    )
+    mass = Objective(name="mass", direction=ObjectiveDirection.MINIMIZE, evaluate=rectangular_mass)
+    problem = OptimizationProblem(
+        name="nsga2-plot-test", base_project=_base_project(),
+        design_variables=[_thickness_variable()], objectives=[displacement, mass],
+    )
+    config = OptimizationConfig(algorithm="nsga2", population_size=6, max_evaluations=24, seed=1)
+    result = OptimizationRunner().run(problem, config)
+    summaries = generation_summaries(result.history, result.objectives)
+
+    figure = plot_pareto_front_size_history(summaries)
+    assert isinstance(figure, Figure)
+
+
+def test_plot_pareto_front_size_history_requires_at_least_one_summary() -> None:
+    with pytest.raises(ValidationError):
+        plot_pareto_front_size_history([])

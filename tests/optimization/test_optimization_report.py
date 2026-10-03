@@ -135,3 +135,83 @@ def test_save_report_markdown(tmp_path) -> None:
     save_optimization_report(report, path, "markdown")
     assert path.exists()
     assert "Saved Report" in path.read_text()
+
+
+# --- Version 33: sections 21 (Algorithm Parameters) and 22 (Robust Design) ---
+
+
+def test_report_has_twenty_two_sections_for_population_based_run() -> None:
+    objective = Objective(
+        name="maximum_displacement", direction=ObjectiveDirection.MINIMIZE,
+        evaluate=from_result_extractor(get_extractor("maximum_displacement")),
+    )
+    problem = OptimizationProblem(
+        name="de-report-test", base_project=_base_project(),
+        design_variables=[_thickness_variable()],
+        objectives=[objective],
+    )
+    config = OptimizationConfig(
+        algorithm="differential_evolution", population_size=4, max_evaluations=12, seed=1
+    )
+    result = OptimizationRunner().run(problem, config)
+    report = build_optimization_report(
+        title="DE Report Test", summary="", base_model_description="", result=result
+    )
+    markdown = render_optimization_report_markdown(report)
+    for index in range(1, 23):
+        assert f"## {index}." in markdown, f"missing section {index}"
+
+
+def test_report_algorithm_parameters_shows_population_fields_for_de() -> None:
+    objective = Objective(
+        name="maximum_displacement", direction=ObjectiveDirection.MINIMIZE,
+        evaluate=from_result_extractor(get_extractor("maximum_displacement")),
+    )
+    problem = OptimizationProblem(
+        name="de-params-test", base_project=_base_project(),
+        design_variables=[_thickness_variable()],
+        objectives=[objective],
+    )
+    config = OptimizationConfig(
+        algorithm="differential_evolution", population_size=4, max_evaluations=12, seed=1
+    )
+    result = OptimizationRunner().run(problem, config)
+    report = build_optimization_report(
+        title="DE Params Test", summary="", base_model_description="", result=result
+    )
+    markdown = render_optimization_report_markdown(report)
+    assert "Population size" in markdown
+    assert "Mutation factor" in markdown
+
+
+def test_report_algorithm_parameters_not_applicable_for_coordinate_search() -> None:
+    result = _single_objective_result()
+    report = build_optimization_report(
+        title="CS Params Test", summary="", base_model_description="", result=result
+    )
+    markdown = render_optimization_report_markdown(report)
+    assert "Not applicable" in markdown
+
+
+def test_report_robust_design_section_absent_when_not_used() -> None:
+    result = _single_objective_result()
+    report = build_optimization_report(
+        title="No Robust Test", summary="", base_model_description="", result=result
+    )
+    markdown = render_optimization_report_markdown(report)
+    assert "was not used for this optimization run" in markdown
+
+
+def test_report_robust_design_section_shows_configuration_when_used() -> None:
+    from femtoolkit.optimization.robust import RobustDesignConfig
+
+    result = _single_objective_result()
+    result.robust_config = RobustDesignConfig(
+        uncertainty_enabled=True, sample_count=15, objective_statistic="percentile", percentile=95.0
+    )
+    report = build_optimization_report(
+        title="Robust Test", summary="", base_model_description="", result=result
+    )
+    markdown = render_optimization_report_markdown(report)
+    assert "Sample count per design:** 15" in markdown
+    assert "empirical estimate" in markdown
