@@ -12,14 +12,21 @@ runner itself -- which quantity to compare or which parameter to run a
 sensitivity against is a caller decision this runner has no way to
 guess safely across every analysis type.
 
-**Execution is sequential by design.** Each scenario's project is built
-and solved one at a time, in order, via
-:meth:`~femtoolkit.runs.manager.SimulationRunManager.execute` -- no
-parallel or distributed execution is implemented in this version. The
-loop is structured as a plain, independent per-scenario step precisely
-so a future version can swap it for the Version 27 parallel execution
-infrastructure without changing anything about scenario generation,
-validation, or result collection.
+**Execution is sequential by default; optionally parallel (Version 34).**
+Each scenario's project is built and solved one at a time, in order, via
+:meth:`~femtoolkit.runs.manager.SimulationRunManager.execute` unless the
+caller passes an
+:class:`~femtoolkit.orchestration.config.OrchestrationConfig` requesting
+parallel execution, in which case scenarios are instead run through
+:func:`~femtoolkit.orchestration.simulation.evaluate_simulation_batch`
+(Version 34's independent-whole-simulation-task layer -- a different,
+coarser-grained kind of parallelism than Version 27's per-element
+execution; see :mod:`femtoolkit.orchestration`'s module docstring). The
+default (``orchestration_config=None``) reproduces this version's exact
+original sequential behavior unchanged -- scenario generation,
+validation, and result collection are identical either way; only how
+each scenario's :meth:`~femtoolkit.runs.manager.SimulationRunManager.execute`
+call is dispatched differs.
 """
 
 from __future__ import annotations
@@ -28,6 +35,9 @@ from dataclasses import dataclass, field
 
 from femtoolkit.application.project import Project
 from femtoolkit.exceptions import StudySizeExceededError
+from femtoolkit.orchestration.config import OrchestrationConfig
+from femtoolkit.orchestration.simulation import SimulationTask, evaluate_simulation_batch
+from femtoolkit.orchestration.summary import ExecutionSummary
 from femtoolkit.runs.manager import SimulationRunManager
 from femtoolkit.studies.parameter_sweep import DEFAULT_MAX_SCENARIOS, ParameterDefinition
 from femtoolkit.studies.parameter_sweep import generate_scenarios as _generate_scenarios
@@ -71,11 +81,29 @@ class StudyRunner:
     def __init__(self, run_manager: SimulationRunManager | None = None) -> None:
         self._run_manager = run_manager or SimulationRunManager()
 
-    def run(self, study: SimulationStudy) -> StudyResult:
+    def run(
+        self, study: SimulationStudy, orchestration_config: OrchestrationConfig | None = None
+    ) -> StudyResult:
         """Execute every scenario in ``study`` and collect the results.
 
         Args:
             study: The study to run.
+            orchestration_config: An optional Version 34 orchestration
+                configuration. ``None`` (the default) runs every
+                scenario sequentially, via this runner's own
+                :class:`~femtoolkit.runs.manager.SimulationRunManager`
+                -- identical to every prior version's behavior. Passing
+                a config with ``execution_mode="parallel"`` instead runs
+                every scenario through
+                :func:`~femtoolkit.orchestration.simulation.evaluate_simulation_batch`,
+                each in its own worker process -- scenario identity
+                (``scenario_id``) and result order are always
+                preserved (see
+                :class:`~femtoolkit.orchestration.config.OrchestrationConfig.preserve_order`,
+                ``True`` by default), so the returned
+                :class:`~femtoolkit.studies.results.StudyResult` is
+                identical in shape and scenario correspondence to a
+                sequential run.
 
         Returns:
             A :class:`~femtoolkit.studies.results.StudyResult` holding
@@ -89,6 +117,97 @@ class StudyRunner:
                 generated) share a ``scenario_id``.
             ValidationError: If a scenario's override path is invalid.
         """
+        scenarios = self._generate_and_validate_scenarios(study)
+
+        if orchestration_config is not None:
+            tasks = [
+                SimulationTask(
+                    task_id=scenario.scenario_id,
+                    project=apply_scenario(study.base_project, scenario),
+                    scenario_id=scenario.scenario_id,
+                )
+                for scenario in scenarios
+            ]
+            unordered_runs, _summary = evaluate_simulation_batch(tasks, config=orchestration_config)
+            # Re-index by scenario_id regardless of `orchestration_config.preserve_order` --
+            # `StudyResult.runs` must always align positionally with `scenarios` (its own
+            # documented contract), so this runner never lets a caller's own ordering
+            # preference leak into that invariant.
+            run_by_scenario_id = {run.scenario_id: run for run in unordered_runs}
+            runs = [run_by_scenario_id[scenario.scenario_id] for scenario in scenarios]
+        else:
+            runs = []
+            for scenario in scenarios:
+                project = apply_scenario(study.base_project, scenario)
+                runs.append(self._run_manager.execute(project, scenario_id=scenario.scenario_id))
+
+        return StudyResult(
+            study_id=study.study_id,
+            study_name=study.name,
+            base_project_id=study.base_project.project_id,
+            parameters=list(study.parameters),
+            scenarios=scenarios,
+            runs=runs,
+        )
+
+    def run_with_summary(
+        self, study: SimulationStudy, orchestration_config: OrchestrationConfig | None = None
+    ) -> tuple[StudyResult, ExecutionSummary]:
+        """Like :meth:`run`, but also returns the batch's execution summary.
+
+        Always executes through
+        :func:`~femtoolkit.orchestration.simulation.evaluate_simulation_batch`
+        (serially when ``orchestration_config`` is ``None``, exactly as
+        :meth:`run`'s default -- just routed through the orchestration
+        layer so a real
+        :class:`~femtoolkit.orchestration.summary.ExecutionSummary` is
+        always available), unlike :meth:`run`'s own default path (a
+        plain Python loop reusing this instance's own
+        :class:`~femtoolkit.runs.manager.SimulationRunManager`). Intended
+        for callers that want to display execution metadata (the GUI's
+        Simulation Studies page; see
+        :func:`femtoolkit.gui.components.render_execution_summary`) --
+        :meth:`run` is unchanged and remains the simpler, summary-free
+        entry point every prior version's callers already use.
+
+        Args:
+            study: The study to run.
+            orchestration_config: See :meth:`run`.
+
+        Returns:
+            A ``(result, summary)`` pair.
+
+        Raises:
+            StudySizeExceededError: See :meth:`run`.
+            DuplicateScenarioIdError: See :meth:`run`.
+            ValidationError: See :meth:`run`.
+        """
+        scenarios = self._generate_and_validate_scenarios(study)
+        tasks = [
+            SimulationTask(
+                task_id=scenario.scenario_id,
+                project=apply_scenario(study.base_project, scenario),
+                scenario_id=scenario.scenario_id,
+            )
+            for scenario in scenarios
+        ]
+        unordered_runs, summary = evaluate_simulation_batch(
+            tasks, config=orchestration_config or OrchestrationConfig()
+        )
+        run_by_scenario_id = {run.scenario_id: run for run in unordered_runs}
+        runs = [run_by_scenario_id[scenario.scenario_id] for scenario in scenarios]
+
+        result = StudyResult(
+            study_id=study.study_id,
+            study_name=study.name,
+            base_project_id=study.base_project.project_id,
+            parameters=list(study.parameters),
+            scenarios=scenarios,
+            runs=runs,
+        )
+        return result, summary
+
+    def _generate_and_validate_scenarios(self, study: SimulationStudy) -> list[Scenario]:
         scenarios = list(study.scenarios)
         if study.parameters:
             scenarios = scenarios + _generate_scenarios(
@@ -106,17 +225,4 @@ class StudyRunner:
             )
 
         validate_unique_scenario_ids(scenarios)
-
-        runs = []
-        for scenario in scenarios:
-            project = apply_scenario(study.base_project, scenario)
-            runs.append(self._run_manager.execute(project, scenario_id=scenario.scenario_id))
-
-        return StudyResult(
-            study_id=study.study_id,
-            study_name=study.name,
-            base_project_id=study.base_project.project_id,
-            parameters=list(study.parameters),
-            scenarios=scenarios,
-            runs=runs,
-        )
+        return scenarios

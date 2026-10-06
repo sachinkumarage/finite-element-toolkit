@@ -309,3 +309,24 @@ def test_robust_objective_is_reproducible_with_same_seed() -> None:
     values_a = [e.objective_values["mean_disp"] for e in result_a.history.evaluations]
     values_b = [e.objective_values["mean_disp"] for e in result_b.history.evaluations]
     assert values_a == values_b
+
+
+# --- Picklability (Version 34: required for parallel optimization evaluation) ---
+
+
+def test_robust_objective_statistic_is_picklable() -> None:
+    import pickle
+
+    robust_config = RobustDesignConfig(uncertainty_enabled=True, sample_count=5)
+    objective_fn = robust_objective_statistic(_build_params, "maximum_displacement", robust_config)
+    pickle.dumps(objective_fn)
+
+
+def test_robust_constraint_statistic_is_picklable() -> None:
+    import pickle
+
+    robust_config = RobustDesignConfig(uncertainty_enabled=True, sample_count=5)
+    constraint_fn = robust_constraint_statistic(
+        _build_params, "maximum_von_mises_stress", robust_config
+    )
+    pickle.dumps(constraint_fn)

@@ -18,6 +18,7 @@ from femtoolkit.optimization.evaluation import DesignEvaluation
 from femtoolkit.optimization.history import OptimizationHistory, compute_convergence
 from femtoolkit.optimization.objectives import Objective, ObjectiveDirection
 from femtoolkit.optimization.problems import OptimizationProblem
+from femtoolkit.orchestration.config import OrchestrationConfig
 from femtoolkit.runs.manager import SimulationRunManager
 
 DEFAULT_MAX_EVALUATIONS = 50
@@ -301,6 +302,7 @@ class OptimizationAlgorithm(ABC):
         run_manager: SimulationRunManager,
         history: OptimizationHistory,
         starting_evaluation: DesignEvaluation | None = None,
+        orchestration_config: OrchestrationConfig | None = None,
     ) -> StopReason:
         """Search ``problem``'s design space, appending every evaluation to ``history``.
 
@@ -309,6 +311,10 @@ class OptimizationAlgorithm(ABC):
             config: The run's configuration.
             run_manager: The run manager to execute each design's
                 scenario with (the same one every evaluation shares).
+                Only used for evaluations this algorithm still performs
+                one at a time -- a batched evaluation point (see
+                ``orchestration_config``) constructs its own run
+                managers inside worker processes instead (Version 34).
             history: The history to append every evaluated design to,
                 in evaluation order, as the search proceeds.
             starting_evaluation: An already-evaluated design (typically
@@ -316,6 +322,21 @@ class OptimizationAlgorithm(ABC):
                 starting point instead of evaluating it again. An
                 algorithm that does not need a starting point (e.g.
                 pure random sampling) ignores this.
+            orchestration_config: An optional Version 34 orchestration
+                configuration. ``None`` (the default) evaluates every
+                design one at a time, in the calling process --
+                identical to every prior version's behavior for every
+                algorithm. A population-based algorithm
+                (:mod:`femtoolkit.optimization.algorithms.differential_evolution`/
+                ``genetic_algorithm``/``particle_swarm``/``nsga2``) that
+                can safely batch some of its evaluations uses this to
+                run them through
+                :func:`~femtoolkit.optimization.batch.evaluate_design_batch`
+                instead -- see each such algorithm's own module
+                docstring for exactly which evaluations it batches and
+                why. An algorithm with no independent-candidate
+                evaluation to batch (random search, coordinate search)
+                ignores this.
 
         Returns:
             The :class:`StopReason` the run stopped for.

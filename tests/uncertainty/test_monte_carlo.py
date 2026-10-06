@@ -221,3 +221,47 @@ def test_run_non_fail_fast_continues_after_failures() -> None:
     result = MonteCarloRunner().run(config)
     assert len(result.study_result.runs) == 50
     assert result.n_failed > 0
+
+
+# --- Version 34: parallel orchestration and reproducibility ---
+
+
+def test_monte_carlo_sample_set_identical_regardless_of_worker_count() -> None:
+    """Hard spec requirement: changing worker count must not change the generated samples."""
+    from femtoolkit.orchestration.config import OrchestrationConfig
+
+    config = MonteCarloConfig(
+        study_id="mc-worker-invariance", name="MC Study", base_project=_base_project(),
+        parameters=[_e_parameter()], output_quantities=["maximum_displacement"],
+        n_samples=10, seed=99,
+    )
+    serial_result = MonteCarloRunner().run(config)
+    parallel_2w = MonteCarloRunner().run(
+        config, orchestration_config=OrchestrationConfig(execution_mode="parallel", max_workers=2)
+    )
+    parallel_4w = MonteCarloRunner().run(
+        config, orchestration_config=OrchestrationConfig(execution_mode="parallel", max_workers=4)
+    )
+
+    assert np.array_equal(serial_result.sample_set.values, parallel_2w.sample_set.values)
+    assert np.array_equal(serial_result.sample_set.values, parallel_4w.sample_set.values)
+
+    extractor = get_extractor("maximum_displacement")
+    serial_outputs = serial_result.output_values(extractor)
+    parallel_outputs = parallel_2w.output_values(extractor)
+    assert np.array_equal(serial_outputs, parallel_outputs)
+
+
+def test_monte_carlo_fail_fast_ignores_orchestration_config() -> None:
+    """fail_fast=True always runs sequentially -- orchestration_config is accepted and ignored."""
+    from femtoolkit.orchestration.config import OrchestrationConfig
+
+    config = MonteCarloConfig(
+        study_id="mc-fail-fast", name="MC Study", base_project=_base_project(),
+        parameters=[_e_parameter()], output_quantities=["maximum_displacement"],
+        n_samples=5, seed=1, fail_fast=True,
+    )
+    result = MonteCarloRunner().run(
+        config, orchestration_config=OrchestrationConfig(execution_mode="parallel", max_workers=2)
+    )
+    assert len(result.study_result.runs) > 0

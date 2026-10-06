@@ -32,7 +32,7 @@ import streamlit as st
 
 from femtoolkit.application.exceptions_display import describe_error
 from femtoolkit.exceptions import FiniteElementToolkitError
-from femtoolkit.gui.components import require_project
+from femtoolkit.gui.components import render_execution_mode_controls, require_project
 from femtoolkit.gui.state import AppState
 from femtoolkit.optimization import (
     SUPPORTED_ALGORITHMS,
@@ -510,6 +510,20 @@ def _render_execution(state: AppState) -> None:
             f"{robust_config.sample_count} uncertainty samples each)."
         )
 
+    orchestration_config = None
+    if algorithm in _POPULATION_ALGORITHMS:
+        st.caption(
+            f"'{algorithm}' can evaluate candidates in parallel -- generation 0 always, "
+            "and the full per-generation offspring batch for genetic_algorithm/nsga2 "
+            "(see that algorithm's module docstring for the exact scope)."
+        )
+        orchestration_config = render_execution_mode_controls(key_prefix="optimization")
+    else:
+        st.caption(
+            f"'{algorithm}' has no independent batch of candidates to evaluate in "
+            "parallel in this version."
+        )
+
     if st.button("Run Optimization", type="primary", disabled=not ready):
         try:
             problem = OptimizationProblem(
@@ -528,7 +542,10 @@ def _render_execution(state: AppState) -> None:
                 **extra_kwargs,
             )
             with st.spinner(f"Running up to {config.max_evaluations} evaluations..."):
-                result = OptimizationRunner().run(problem, config, robust_config=robust_config)
+                result = OptimizationRunner().run(
+                    problem, config, robust_config=robust_config,
+                    orchestration_config=orchestration_config,
+                )
         except FiniteElementToolkitError as exc:
             st.error(describe_error(exc))
             return
@@ -538,6 +555,11 @@ def _render_execution(state: AppState) -> None:
             f"Stopped: {result.stop_reason.value}. {result.history.n_evaluations} evaluations "
             f"recorded, {len(result.history.feasible_evaluations())} feasible."
         )
+        if orchestration_config is not None:
+            st.caption(
+                f"Executed in parallel across {orchestration_config.max_workers} worker "
+                "process(es)."
+            )
 
     if not ready:
         st.info("Add at least one design variable and one objective to run a search.")

@@ -40,12 +40,33 @@ every population-based algorithm in this package uses (see
 applies to that encoded vector, so a categorical variable's velocity
 moves it between category-list positions. Reproducible via
 ``config.seed``. No mathematical global-optimality guarantee is made.
+
+**Version 34 batched evaluation: generation 0 only.** This
+implementation is "asynchronous": ``global_best_position`` and each
+particle's personal best are updated *immediately* after that
+particle's own evaluation, inside the per-particle loop -- so particle
+``i + 1``'s velocity update (which reads ``global_best_position``) can
+legitimately be influenced by particle ``i``'s just-computed result
+within the same iteration. That is a real, intentional property of this
+PSO variant, not a bug -- evaluating a whole iteration against a frozen
+snapshot of the global best would be a genuine behavioral change
+(different accepted updates for the same seed) that this version does
+not make. Only generation 0's initial swarm positions -- independent by
+construction -- are evaluated as a batch (via
+:func:`~femtoolkit.optimization.algorithms._batch_support.evaluate_vector_batch`)
+when ``orchestration_config`` requests parallel execution; the
+per-iteration particle loop always evaluates one particle at a time,
+exactly as before.
 """
 
 from __future__ import annotations
 
 import numpy as np
 
+from femtoolkit.optimization.algorithms._batch_support import (
+    count_consecutive_failures,
+    evaluate_vector_batch,
+)
 from femtoolkit.optimization.algorithms._encoding import (
     bounds_arrays,
     decode_vector,
@@ -65,6 +86,7 @@ from femtoolkit.optimization.evaluation import (
 )
 from femtoolkit.optimization.history import OptimizationHistory
 from femtoolkit.optimization.problems import OptimizationProblem
+from femtoolkit.orchestration.config import OrchestrationConfig
 from femtoolkit.runs.manager import SimulationRunManager
 
 
@@ -78,6 +100,7 @@ class ParticleSwarmOptimization(OptimizationAlgorithm):
         run_manager: SimulationRunManager,
         history: OptimizationHistory,
         starting_evaluation: DesignEvaluation | None = None,
+        orchestration_config: OrchestrationConfig | None = None,
     ) -> StopReason:
         del starting_evaluation  # PSO initializes its own random swarm
         rng = np.random.default_rng(config.seed)
@@ -111,7 +134,15 @@ class ParticleSwarmOptimization(OptimizationAlgorithm):
 
         positions = [sample_vector(design_variables, rng) for _ in range(swarm_size)]
         velocities = [np.zeros(len(design_variables)) for _ in range(swarm_size)]
-        evaluations = [_evaluate(position, generation=0) for position in positions]
+        if orchestration_config is not None:
+            evaluations = evaluate_vector_batch(
+                positions, 0, problem, f"{problem.name}-pso", evaluation_index, history,
+                orchestration_config,
+            )
+            evaluation_index += len(evaluations)
+            consecutive_failures = count_consecutive_failures(evaluations, consecutive_failures)
+        else:
+            evaluations = [_evaluate(position, generation=0) for position in positions]
 
         personal_best_positions = [position.copy() for position in positions]
         personal_best_evaluations = list(evaluations)

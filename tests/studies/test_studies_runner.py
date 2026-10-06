@@ -139,3 +139,44 @@ def test_study_runner_records_failed_scenarios_without_aborting_study() -> None:
     assert len(result.successful_runs) == 1
     assert len(result.failed_runs) == 1
     assert result.failed_runs[0].error_stage == "validation"
+
+
+# --- Version 34: parallel orchestration ---
+
+
+def test_study_runner_parallel_matches_serial() -> None:
+    from femtoolkit.orchestration.config import OrchestrationConfig
+
+    base = _base_project()
+    study = SimulationStudy(
+        study_id="study-parallel", name="Load Study",
+        base_project=base, parameters=[_load_parameter([-1000.0, -2000.0, -3000.0, -4000.0])],
+    )
+    serial_result = StudyRunner().run(study)
+    parallel_result = StudyRunner().run(
+        study, orchestration_config=OrchestrationConfig(execution_mode="parallel", max_workers=2)
+    )
+
+    assert [r.scenario_id for r in parallel_result.runs] == [
+        r.scenario_id for r in serial_result.runs
+    ]
+    extractor = get_extractor("maximum_displacement")
+    serial_values = [extractor(r) for r in serial_result.runs]
+    parallel_values = [extractor(r) for r in parallel_result.runs]
+    assert serial_values == parallel_values
+
+
+def test_study_runner_parallel_preserves_scenario_order_even_with_completion_order() -> None:
+    from femtoolkit.orchestration.config import OrchestrationConfig
+
+    base = _base_project()
+    study = SimulationStudy(
+        study_id="study-unordered", name="Load Study",
+        base_project=base, parameters=[_load_parameter([-1000.0, -2000.0, -3000.0, -4000.0])],
+    )
+    result = StudyRunner().run(
+        study, orchestration_config=OrchestrationConfig(
+            execution_mode="parallel", max_workers=4, preserve_order=False,
+        ),
+    )
+    assert [r.scenario_id for r in result.runs] == [s.scenario_id for s in result.scenarios]

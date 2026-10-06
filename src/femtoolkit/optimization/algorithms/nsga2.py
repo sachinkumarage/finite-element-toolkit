@@ -54,12 +54,30 @@ Mixed-type design variables share the same real-valued box encoding
 every population-based algorithm in this package uses (see
 :mod:`femtoolkit.optimization.algorithms._encoding`). Reproducible via
 ``config.seed``. No mathematical global-optimality guarantee is made.
+
+**Version 34 batched evaluation: generation 0, and every full
+generation's offspring.** ``_crowded_tournament`` always reads the
+*frozen* parent generation's ``population_vectors``/
+``population_evaluations``/``rank_of``/``crowding_of`` -- these are
+only updated via environmental selection *after* the full
+``population_size``-sized offspring batch has already been built and
+evaluated -- so every child in one generation is produced independently
+of every other child in that same generation, with zero intra-
+generation dependency. That makes a whole generation's offspring safe
+to batch-evaluate together, exactly like
+:mod:`~femtoolkit.optimization.algorithms.genetic_algorithm` (see its
+module docstring for the shared batch-sizing/budget-capping and
+mid-generation-stopping trade-off this algorithm makes the same way).
 """
 
 from __future__ import annotations
 
 import numpy as np
 
+from femtoolkit.optimization.algorithms._batch_support import (
+    count_consecutive_failures,
+    evaluate_vector_batch,
+)
 from femtoolkit.optimization.algorithms._encoding import (
     bounds_arrays,
     decode_vector,
@@ -75,6 +93,7 @@ from femtoolkit.optimization.evaluation import DesignEvaluation, DesignStatus, e
 from femtoolkit.optimization.history import OptimizationHistory
 from femtoolkit.optimization.pareto import crowding_distance, fast_non_dominated_sort
 from femtoolkit.optimization.problems import OptimizationProblem
+from femtoolkit.orchestration.config import OrchestrationConfig
 from femtoolkit.runs.manager import SimulationRunManager
 
 
@@ -88,6 +107,7 @@ class NSGA2(OptimizationAlgorithm):
         run_manager: SimulationRunManager,
         history: OptimizationHistory,
         starting_evaluation: DesignEvaluation | None = None,
+        orchestration_config: OrchestrationConfig | None = None,
     ) -> StopReason:
         del starting_evaluation  # NSGA-II initializes its own random population
         rng = np.random.default_rng(config.seed)
@@ -146,10 +166,49 @@ class NSGA2(OptimizationAlgorithm):
             crowd_j = crowding_of[evaluation_j.design_id]
             return vectors[i] if crowd_i >= crowd_j else vectors[j]
 
+        def _generate_child_vector(
+            vectors: list[np.ndarray],
+            evaluations: list[DesignEvaluation],
+            rank_of: dict[str, int],
+            crowding_of: dict[str, float],
+        ) -> np.ndarray:
+            """Produce one child vector -- selection, crossover, mutation -- never evaluation.
+
+            Consumes exactly the same sequence of random draws whether
+            the resulting vector is evaluated immediately (serial) or
+            collected into a batch (parallel) -- the RNG never sees
+            evaluation results, so this function's output for a given
+            seed is identical either way (the same approach
+            :mod:`~femtoolkit.optimization.algorithms.genetic_algorithm`
+            uses).
+            """
+            parent_a = _crowded_tournament(vectors, evaluations, rank_of, crowding_of)
+            parent_b = _crowded_tournament(vectors, evaluations, rank_of, crowding_of)
+            if rng.random() < config.crossover_probability:
+                mask = rng.random(len(design_variables)) < 0.5
+                child = np.where(mask, parent_a, parent_b)
+            else:
+                child = parent_a.copy()
+            mutation_mask = rng.random(len(design_variables)) < config.mutation_probability
+            if np.any(mutation_mask):
+                random_vector = sample_vector(design_variables, rng)
+                child = np.where(mutation_mask, random_vector, child)
+            return np.clip(child, lower, upper)
+
         population_vectors = [sample_vector(design_variables, rng) for _ in range(population_size)]
-        population_evaluations = [
-            _evaluate(vector, generation=0) for vector in population_vectors
-        ]
+        if orchestration_config is not None:
+            population_evaluations = evaluate_vector_batch(
+                population_vectors, 0, problem, f"{problem.name}-nsga2", evaluation_index,
+                history, orchestration_config,
+            )
+            evaluation_index += len(population_evaluations)
+            consecutive_failures = count_consecutive_failures(
+                population_evaluations, consecutive_failures
+            )
+        else:
+            population_evaluations = [
+                _evaluate(vector, generation=0) for vector in population_vectors
+            ]
         _, rank_of, crowding_of = _rank_and_crowding(population_evaluations)
 
         generation = 0
@@ -163,32 +222,44 @@ class NSGA2(OptimizationAlgorithm):
             generation += 1
             offspring_vectors: list[np.ndarray] = []
             offspring_evaluations: list[DesignEvaluation] = []
-            while len(offspring_vectors) < population_size:
+
+            if orchestration_config is not None:
                 stop_reason = should_stop(
                     history, primary_objective, config, consecutive_failures, generation=generation
                 )
                 if stop_reason is not None:
                     return stop_reason
+                remaining_budget = config.max_evaluations - history.n_evaluations
+                batch_size = min(population_size, max(0, remaining_budget))
+                offspring_vectors = [
+                    _generate_child_vector(
+                        population_vectors, population_evaluations, rank_of, crowding_of
+                    )
+                    for _ in range(batch_size)
+                ]
+                if offspring_vectors:
+                    offspring_evaluations = evaluate_vector_batch(
+                        offspring_vectors, generation, problem, f"{problem.name}-nsga2",
+                        evaluation_index, history, orchestration_config,
+                    )
+                    evaluation_index += len(offspring_evaluations)
+                    consecutive_failures = count_consecutive_failures(
+                        offspring_evaluations, consecutive_failures
+                    )
+            else:
+                while len(offspring_vectors) < population_size:
+                    stop_reason = should_stop(
+                        history, primary_objective, config, consecutive_failures,
+                        generation=generation,
+                    )
+                    if stop_reason is not None:
+                        return stop_reason
 
-                parent_a = _crowded_tournament(
-                    population_vectors, population_evaluations, rank_of, crowding_of
-                )
-                parent_b = _crowded_tournament(
-                    population_vectors, population_evaluations, rank_of, crowding_of
-                )
-                if rng.random() < config.crossover_probability:
-                    mask = rng.random(len(design_variables)) < 0.5
-                    child = np.where(mask, parent_a, parent_b)
-                else:
-                    child = parent_a.copy()
-                mutation_mask = rng.random(len(design_variables)) < config.mutation_probability
-                if np.any(mutation_mask):
-                    random_vector = sample_vector(design_variables, rng)
-                    child = np.where(mutation_mask, random_vector, child)
-                child = np.clip(child, lower, upper)
-
-                offspring_vectors.append(child)
-                offspring_evaluations.append(_evaluate(child, generation=generation))
+                    child = _generate_child_vector(
+                        population_vectors, population_evaluations, rank_of, crowding_of
+                    )
+                    offspring_vectors.append(child)
+                    offspring_evaluations.append(_evaluate(child, generation=generation))
 
             combined_vectors = population_vectors + offspring_vectors
             combined_evaluations = population_evaluations + offspring_evaluations

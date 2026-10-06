@@ -164,3 +164,54 @@ def test_nsga2_handles_constraints_feasibility_first() -> None:
     front = pareto_front(history.evaluations, problem.objectives)
     assert all(e.is_feasible for e in front)
     assert history.n_evaluations > 0
+
+
+# --- Version 34: parallel (batched) evaluation ---
+
+
+def test_nsga2_parallel_matches_serial_at_max_evaluations() -> None:
+    # Forcing a MAX_EVALUATIONS stop avoids the documented mid-generation-
+    # stopping-granularity difference between serial and batched offspring
+    # evaluation (see the algorithm's module docstring).
+    def _run(orchestration_config):
+        problem = _mass_displacement_problem()
+        config = OptimizationConfig(
+            algorithm="nsga2", population_size=6, max_evaluations=18, max_generations=10,
+            seed=9, patience=1000, tolerance=1e-15,
+        )
+        history = OptimizationHistory()
+        stop_reason = NSGA2().optimize(
+            problem, config, SimulationRunManager(), history,
+            orchestration_config=orchestration_config,
+        )
+        return history, stop_reason
+
+    from femtoolkit.orchestration.config import OrchestrationConfig
+
+    serial_history, serial_stop = _run(None)
+    parallel_history, parallel_stop = _run(
+        OrchestrationConfig(execution_mode="parallel", max_workers=2)
+    )
+
+    assert serial_stop == StopReason.MAX_EVALUATIONS == parallel_stop
+    assert serial_history.n_evaluations == parallel_history.n_evaluations == 18
+    serial_values = [e.objective_values["maximum_displacement"] for e in serial_history.evaluations]
+    parallel_values = [
+        e.objective_values["maximum_displacement"] for e in parallel_history.evaluations
+    ]
+    assert serial_values == parallel_values
+
+
+def test_nsga2_parallel_respects_max_evaluations_ceiling() -> None:
+    from femtoolkit.orchestration.config import OrchestrationConfig
+
+    problem = _mass_displacement_problem()
+    config = OptimizationConfig(
+        algorithm="nsga2", population_size=8, max_evaluations=16, max_generations=20, seed=4,
+    )
+    history = OptimizationHistory()
+    NSGA2().optimize(
+        problem, config, SimulationRunManager(), history,
+        orchestration_config=OrchestrationConfig(execution_mode="parallel", max_workers=2),
+    )
+    assert history.n_evaluations <= 16

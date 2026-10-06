@@ -47,6 +47,7 @@ from femtoolkit.optimization.evaluation import (
 from femtoolkit.optimization.history import OptimizationHistory
 from femtoolkit.optimization.problems import OptimizationProblem
 from femtoolkit.optimization.variables import DesignVariable, DesignVariableType
+from femtoolkit.orchestration.config import OrchestrationConfig
 from femtoolkit.runs.manager import SimulationRunManager
 
 
@@ -67,7 +68,13 @@ def _step_value(variable: DesignVariable, current: Any, step_size: float, direct
 
 
 class CoordinateSearch(OptimizationAlgorithm):
-    """Improves one design variable at a time, starting from the problem's baseline."""
+    """Improves one design variable at a time, starting from the problem's baseline.
+
+    **No Version 34 batched evaluation.** Each move's candidates depend
+    on the previous move's outcome -- there is no independent batch of
+    evaluations to parallelize. ``orchestration_config`` is accepted for
+    interface consistency and ignored.
+    """
 
     def optimize(
         self,
@@ -76,7 +83,9 @@ class CoordinateSearch(OptimizationAlgorithm):
         run_manager: SimulationRunManager,
         history: OptimizationHistory,
         starting_evaluation: DesignEvaluation | None = None,
+        orchestration_config: OrchestrationConfig | None = None,
     ) -> StopReason:
+        del orchestration_config  # not batched in this version -- see class docstring
         primary_objective = problem.objectives[0]
         evaluation_index = 0
 

@@ -37,6 +37,7 @@ from femtoolkit.optimization.algorithms.base import (
 from femtoolkit.optimization.evaluation import DesignEvaluation, DesignStatus, evaluate_design
 from femtoolkit.optimization.history import OptimizationHistory
 from femtoolkit.optimization.problems import OptimizationProblem
+from femtoolkit.orchestration.config import OrchestrationConfig
 from femtoolkit.runs.manager import SimulationRunManager
 
 
@@ -45,6 +46,16 @@ class BoundedRandomSearch(OptimizationAlgorithm):
 
     Reproducible via ``config.seed`` -- the same seed always produces
     the same sequence of candidate designs.
+
+    **No Version 34 batched evaluation.** Every candidate here is
+    already drawn independently of every other (unlike
+    :class:`~femtoolkit.optimization.algorithms.coordinate_search.CoordinateSearch`,
+    whose next move depends on the previous one), so batching would in
+    principle be safe -- but this version's parallel-evaluation
+    integration is scoped to the population-based algorithms the spec
+    names explicitly (differential evolution, genetic algorithm,
+    particle swarm, NSGA-II); ``orchestration_config`` is accepted for
+    interface consistency and ignored.
     """
 
     def optimize(
@@ -54,8 +65,10 @@ class BoundedRandomSearch(OptimizationAlgorithm):
         run_manager: SimulationRunManager,
         history: OptimizationHistory,
         starting_evaluation: DesignEvaluation | None = None,
+        orchestration_config: OrchestrationConfig | None = None,
     ) -> StopReason:
         del starting_evaluation  # random search does not need a starting point
+        del orchestration_config  # not batched in this version -- see class docstring
         rng = np.random.default_rng(config.seed)
         primary_objective = problem.objectives[0]
         consecutive_failures = 0

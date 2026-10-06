@@ -334,6 +334,29 @@ class WorkerExecutionError(ExecutionError):
     """
 
 
+class InvalidOrchestrationConfigurationError(ExecutionError):
+    """Raised when a :class:`~femtoolkit.orchestration.config.OrchestrationConfig` is invalid.
+
+    A sibling of :exc:`InvalidExecutionConfigurationError` kept as a
+    distinct class (rather than reused directly) so an error message
+    always names the correct configuration object -- both still inherit
+    the shared :exc:`ExecutionError` base, so a caller that wants to
+    catch "any execution configuration problem" broadly still can.
+    Examples: a non-positive ``max_workers``, a negative ``timeout``, or
+    an unknown ``execution_mode``.
+    """
+
+
+class TaskTimeoutError(ExecutionError):
+    """Raised when a simulation task exceeds its configured timeout (Version 34).
+
+    The owning worker pool is shut down (not left running) when this
+    happens -- see :mod:`femtoolkit.orchestration.backends.local_process`
+    for why a timeout forces the whole in-flight batch to stop rather
+    than only the one slow task.
+    """
+
+
 class StudyError(FiniteElementToolkitError):
     """Base class for errors raised by :mod:`femtoolkit.studies` (Version 30).
 

@@ -9,6 +9,23 @@ as small, optional convenience builders for two very common cases (an
 FEA result quantity, and mass of a rectangular mesh domain), not as
 special cases the engine treats differently from any other objective a
 caller defines.
+
+**Picklability (Version 34).** :func:`from_result_extractor` and
+:func:`robust_objective_mean` return small, module-level, frozen
+``@dataclass`` callables (:class:`_ExtractorObjective`,
+:class:`_RobustMeanObjective`) rather than nested-function closures.
+This matters only for parallel optimization evaluation
+(:mod:`femtoolkit.optimization.batch`): a :class:`~multiprocessing`
+worker process can only receive a task payload that
+:mod:`pickle` can serialize, and Python cannot pickle a closure (a
+function defined inside another function) -- only a plain module-level
+function or callable object. ``rectangular_mass`` needed no change; it
+was already a plain module-level function. A caller-supplied ``lambda``
+or closure passed directly as an :class:`Objective`'s ``evaluate``
+remains perfectly valid for serial execution, but will raise
+:exc:`~femtoolkit.exceptions.TaskSerializationError` if parallel
+evaluation is requested for it -- an inherent property of Python
+multiprocessing, not a toolkit defect.
 """
 
 from __future__ import annotations
@@ -85,6 +102,24 @@ def validate_unique_objective_names(objectives: list[Objective]) -> None:
         seen.add(objective.name)
 
 
+@dataclass(frozen=True)
+class _ExtractorObjective:
+    """Picklable callable wrapping one extractor as an objective function.
+
+    A plain module-level class rather than a closure so that an
+    :class:`Objective` built via :func:`from_result_extractor` can be
+    sent to a worker process (see the module docstring's "Picklability"
+    section). ``extractor`` itself must also be picklable -- true for
+    every named extractor in :data:`~femtoolkit.studies.extractors.EXTRACTORS`,
+    which are plain module-level functions.
+    """
+
+    extractor: Extractor
+
+    def __call__(self, context: DesignContext) -> float | None:
+        return self.extractor(context.run)
+
+
 def from_result_extractor(extractor: Extractor) -> ObjectiveFunction:
     """Wrap an existing Version 30 result extractor as an objective evaluation function.
 
@@ -96,11 +131,7 @@ def from_result_extractor(extractor: Extractor) -> ObjectiveFunction:
     Returns:
         An :data:`ObjectiveFunction` reading the extractor from ``context.run``.
     """
-
-    def _evaluate(context: DesignContext) -> float | None:
-        return extractor(context.run)
-
-    return _evaluate
+    return _ExtractorObjective(extractor)
 
 
 def rectangular_mass(context: DesignContext) -> float | None:
@@ -123,6 +154,45 @@ def rectangular_mass(context: DesignContext) -> float | None:
     if density is None:
         return None
     return mesh.width * mesh.height * mesh.thickness * density
+
+
+@dataclass(frozen=True)
+class _RobustMeanObjective:
+    """Picklable callable implementing :func:`robust_objective_mean`.
+
+    A plain module-level class rather than a closure (see the module
+    docstring's "Picklability" section). Sending this to a worker
+    process additionally requires ``build_parameters`` itself to be
+    picklable -- true for a plain module-level function, not for a
+    ``lambda`` or another closure.
+    """
+
+    build_parameters: Callable[[DesignContext], list[UncertainParameter]]
+    quantity_name: str
+    n_samples: int = 20
+    seed: int | None = None
+
+    def __call__(self, context: DesignContext) -> float | None:
+        from femtoolkit.studies.extractors import get_extractor
+        from femtoolkit.uncertainty.monte_carlo import MonteCarloConfig, MonteCarloRunner
+
+        parameters = self.build_parameters(context)
+        if not parameters:
+            return None
+        config = MonteCarloConfig(
+            study_id="robust-objective-sample",
+            name="Robust objective sample",
+            base_project=context.project,
+            parameters=parameters,
+            output_quantities=[self.quantity_name],
+            n_samples=self.n_samples,
+            seed=self.seed,
+        )
+        result = MonteCarloRunner().run(config)
+        values = result.output_values(get_extractor(self.quantity_name))
+        if values.size == 0:
+            return None
+        return float(values.mean())
 
 
 def robust_objective_mean(
@@ -161,30 +231,7 @@ def robust_objective_mean(
         An :data:`ObjectiveFunction` returning the sampled mean, or
         ``None`` if no successful sample was obtained.
     """
-
-    def _evaluate(context: DesignContext) -> float | None:
-        from femtoolkit.studies.extractors import get_extractor
-        from femtoolkit.uncertainty.monte_carlo import MonteCarloConfig, MonteCarloRunner
-
-        parameters = build_parameters(context)
-        if not parameters:
-            return None
-        config = MonteCarloConfig(
-            study_id="robust-objective-sample",
-            name="Robust objective sample",
-            base_project=context.project,
-            parameters=parameters,
-            output_quantities=[quantity_name],
-            n_samples=n_samples,
-            seed=seed,
-        )
-        result = MonteCarloRunner().run(config)
-        values = result.output_values(get_extractor(quantity_name))
-        if values.size == 0:
-            return None
-        return float(values.mean())
-
-    return _evaluate
+    return _RobustMeanObjective(build_parameters, quantity_name, n_samples, seed)
 
 
 __all__ = [

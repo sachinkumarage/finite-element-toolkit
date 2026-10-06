@@ -142,3 +142,37 @@ def test_differential_evolution_stops_at_max_generations() -> None:
     assert stop_reason == StopReason.MAX_GENERATIONS
     generations = {e.generation for e in history.evaluations}
     assert max(generations) <= 2
+
+
+# --- Version 34: parallel (batched generation-0) evaluation ---
+
+
+def test_differential_evolution_parallel_matches_serial() -> None:
+    # DE only batches generation 0 (per-generation steady-state replacement
+    # is left sequential -- see the algorithm's module docstring), which
+    # was never an early-stop-checked region in serial mode either, so
+    # serial and parallel must match exactly regardless of stop reason.
+    def _run(orchestration_config):
+        problem = _sphere_problem()
+        config = OptimizationConfig(
+            algorithm="differential_evolution", population_size=6, max_evaluations=30,
+            max_generations=5, seed=11,
+        )
+        history = OptimizationHistory()
+        DifferentialEvolution().optimize(
+            problem, config, SimulationRunManager(), history,
+            orchestration_config=orchestration_config,
+        )
+        return history
+
+    from femtoolkit.orchestration.config import OrchestrationConfig
+
+    serial_history = _run(None)
+    parallel_history = _run(OrchestrationConfig(execution_mode="parallel", max_workers=2))
+
+    serial_values = [e.objective_values["f"] for e in serial_history.evaluations]
+    parallel_values = [e.objective_values["f"] for e in parallel_history.evaluations]
+    assert serial_values == parallel_values
+    assert [e.design_id for e in serial_history.evaluations] == [
+        e.design_id for e in parallel_history.evaluations
+    ]

@@ -107,3 +107,48 @@ def test_robust_objective_mean_returns_none_for_empty_parameters() -> None:
     context = DesignContext(design_variables={}, project=project, run=run)
     objective_fn = robust_objective_mean(lambda ctx: [], "maximum_displacement")
     assert objective_fn(context) is None
+
+
+# --- Picklability (Version 34: required for parallel optimization evaluation) ---
+
+
+def test_from_result_extractor_is_picklable() -> None:
+    import pickle
+
+    objective_fn = from_result_extractor(get_extractor("maximum_displacement"))
+    pickled = pickle.dumps(objective_fn)
+    restored = pickle.loads(pickled)
+
+    project = _base_project()
+    run = SimulationRunManager().execute(project)
+    context = DesignContext(design_variables={}, project=project, run=run)
+    assert restored(context) == objective_fn(context)
+
+
+def test_robust_objective_mean_is_picklable_with_module_level_build_parameters() -> None:
+    import pickle
+
+    objective_fn = robust_objective_mean(
+        _build_parameters_module_level, "maximum_displacement", n_samples=5, seed=1
+    )
+    pickle.dumps(objective_fn)
+
+
+def test_rectangular_mass_is_already_picklable() -> None:
+    import pickle
+
+    pickle.dumps(rectangular_mass)
+
+
+def _build_parameters_module_level(context: DesignContext) -> list[UncertainParameter]:
+    return [
+        UncertainParameter(
+            path="material.youngs_modulus",
+            label="E",
+            distribution=NormalDistribution(
+                context.project.material.youngs_modulus,
+                context.project.material.youngs_modulus * 0.02,
+            ),
+            physical_lower_bound=0.0,
+        )
+    ]

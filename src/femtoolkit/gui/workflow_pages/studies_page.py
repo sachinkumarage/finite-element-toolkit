@@ -17,8 +17,13 @@ import streamlit as st
 
 from femtoolkit.application.exceptions_display import describe_error
 from femtoolkit.exceptions import FiniteElementToolkitError
-from femtoolkit.gui.components import require_project
+from femtoolkit.gui.components import (
+    render_execution_mode_controls,
+    render_execution_summary,
+    require_project,
+)
 from femtoolkit.gui.state import AppState
+from femtoolkit.orchestration.summary import execution_summary_to_dict
 from femtoolkit.runs.history import RunHistory, record_from_run
 from femtoolkit.studies.extractors import EXTRACTORS, get_extractor
 from femtoolkit.studies.parameter_sweep import DEFAULT_MAX_SCENARIOS, ParameterDefinition
@@ -132,6 +137,7 @@ def _render_execution(state: AppState) -> None:
         "Max scenarios", min_value=1, value=DEFAULT_MAX_SCENARIOS, step=1
     )
     study_name = st.text_input("Study name", value=f"{state.project.name} Study")
+    orchestration_config = render_execution_mode_controls(key_prefix="studies")
 
     if st.button("Run Study", type="primary", disabled=not parameters):
         study = SimulationStudy(
@@ -143,21 +149,32 @@ def _render_execution(state: AppState) -> None:
         )
         try:
             with st.spinner(f"Running {study_name}..."):
-                result = StudyRunner().run(study)
+                if orchestration_config is not None:
+                    result, execution_summary = StudyRunner().run_with_summary(
+                        study, orchestration_config=orchestration_config
+                    )
+                else:
+                    result = StudyRunner().run(study)
+                    execution_summary = None
         except FiniteElementToolkitError as exc:
             st.error(describe_error(exc))
             return
 
         st.session_state[_STUDY_RESULT_KEY] = result
+        execution_metadata = (
+            execution_summary_to_dict(execution_summary) if execution_summary is not None else None
+        )
         history = _run_history(st.session_state)
         for run in result.runs:
-            history.add(record_from_run(run))
+            history.add(record_from_run(run, execution_metadata=execution_metadata))
 
         st.success(
             f"{len(result.successful_runs)}/{len(result.runs)} runs succeeded."
         )
         if result.failed_runs:
             st.warning(f"{len(result.failed_runs)} run(s) failed -- see Run History below.")
+        if execution_summary is not None:
+            render_execution_summary(execution_summary)
 
 
 def _render_run_history(state: AppState) -> None:

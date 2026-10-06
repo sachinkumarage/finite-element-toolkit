@@ -14,6 +14,25 @@ Persistence mirrors
 :class:`~femtoolkit.application.project_service.ProjectService`'s exact
 JSON save/load pattern (the simplest architecture that can support
 reliable querying) -- no server database, no SQLite dependency.
+
+**Execution metadata (Version 34).** When a run was produced as part of
+a batch run through :mod:`femtoolkit.orchestration` (serial or
+parallel), the caller can optionally pass that batch's execution
+metadata -- as a small, plain dict, never an
+:class:`~femtoolkit.orchestration.summary.ExecutionSummary` object
+directly -- to :func:`record_from_run`, which attaches it to the
+resulting :class:`RunRecord` (:attr:`RunRecord.execution_metadata`):
+the execution mode, worker count, and the whole batch's
+task/completed/failed/cancelled counts and elapsed time, exactly as the
+spec's persistence-extension requirement asks for. Taking a plain dict
+rather than importing :mod:`femtoolkit.orchestration` here is
+deliberate -- this module (the simulation core's run-history layer)
+must not depend on the parallel-execution layer built on top of it; see
+:mod:`femtoolkit.orchestration`'s module docstring on that layering. A
+record built without this argument (every pre-Version-34 call site, and
+this module's own default) leaves the field ``None``, and old persisted
+JSON with no such field loads back unchanged -- no server database
+migration, no schema break.
 """
 
 from __future__ import annotations
@@ -56,6 +75,13 @@ class RunRecord:
             :attr:`~femtoolkit.runs.models.SimulationRun.configuration_snapshot`,
             as plain JSON-serializable data
             (:meth:`~femtoolkit.application.project.Project.to_dict`'s output).
+        execution_metadata: The Version 34 batch this run was part of,
+            as a plain dict with keys ``execution_mode``,
+            ``worker_count``, ``total_tasks``, ``completed_tasks``,
+            ``failed_tasks``, ``cancelled_tasks``, and
+            ``total_elapsed_seconds`` -- or ``None`` if this run was not
+            recorded with that context (every pre-Version-34 record,
+            and any record built without passing it explicitly).
     """
 
     run_id: str
@@ -72,6 +98,7 @@ class RunRecord:
     error_stage: str | None = None
     error_message: str | None = None
     configuration_snapshot: dict[str, Any] = field(default_factory=dict)
+    execution_metadata: dict[str, Any] | None = None
 
     def to_dict(self) -> dict:
         """Return a plain, JSON-serializable representation of this record."""
@@ -95,6 +122,7 @@ class RunRecord:
             error_stage=data.get("error_stage"),
             error_message=data.get("error_message"),
             configuration_snapshot=dict(data.get("configuration_snapshot", {})),
+            execution_metadata=data.get("execution_metadata"),
         )
 
 
@@ -106,11 +134,22 @@ _KEY_RESULT_FIELDS = (
 )
 
 
-def record_from_run(run: SimulationRun) -> RunRecord:
+def record_from_run(
+    run: SimulationRun, execution_metadata: dict[str, Any] | None = None
+) -> RunRecord:
     """Build a lightweight, persistable :class:`RunRecord` summary from a live run.
 
     Args:
         run: The run to summarize.
+        execution_metadata: An optional plain dict describing the
+            Version 34 batch this run was part of (see
+            :attr:`RunRecord.execution_metadata`) -- for example, built
+            from an
+            :class:`~femtoolkit.orchestration.summary.ExecutionSummary`
+            via
+            :func:`~femtoolkit.orchestration.summary.execution_summary_to_dict`.
+            ``None`` (the default) leaves the field unset, identical to
+            every pre-Version-34 call site.
 
     Returns:
         A :class:`RunRecord` capturing ``run``'s scalar headline results
@@ -140,6 +179,7 @@ def record_from_run(run: SimulationRun) -> RunRecord:
         error_stage=run.error_stage,
         error_message=run.error_message,
         configuration_snapshot=run.configuration_snapshot.to_dict(),
+        execution_metadata=execution_metadata,
     )
 
 

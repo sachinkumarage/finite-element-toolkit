@@ -31,6 +31,25 @@ execution is delegated entirely to
 :class:`~femtoolkit.runs.manager.SimulationRunManager` that
 ``StudyRunner`` itself uses) -- there is exactly one simulation
 execution system in this toolkit, not two.
+
+**Parallel execution and reproducibility (Version 34).** The entire
+sample set is drawn once, up front, by :func:`generate_samples` --
+*before* any scenario is built or any run executes. This means the hard
+requirement "changing the number of workers must not change the
+generated samples" holds structurally, for free: execution order and
+worker count can never affect a sample set that was already fully
+determined before execution began. :meth:`MonteCarloRunner.run` accepts
+an optional
+:class:`~femtoolkit.orchestration.config.OrchestrationConfig`, forwarded
+unchanged to :class:`~femtoolkit.studies.runner.StudyRunner` -- serial
+and parallel execution are therefore guaranteed to use the *same*
+deterministic sample set for the same ``config.seed``, and (barring
+non-deterministic floating-point summation order across processes, see
+:mod:`femtoolkit.orchestration`'s module docstring) statistically
+equivalent results. This only applies to the default (``fail_fast=False``)
+path; ``fail_fast=True``'s true immediate-stop-on-first-failure semantics
+are inherently sequential and remain so in this version -- see
+:meth:`MonteCarloRunner._run_fail_fast`.
 """
 
 from __future__ import annotations
@@ -42,6 +61,7 @@ import numpy as np
 
 from femtoolkit.application.project import Project
 from femtoolkit.exceptions import StudySizeExceededError, ValidationError
+from femtoolkit.orchestration.config import OrchestrationConfig
 from femtoolkit.runs.manager import SimulationRunManager
 from femtoolkit.runs.models import RunStatus
 from femtoolkit.studies.extractors import Extractor
@@ -259,12 +279,23 @@ class MonteCarloRunner:
         self._run_manager = run_manager or SimulationRunManager()
         self._study_runner = study_runner or StudyRunner(self._run_manager)
 
-    def run(self, config: MonteCarloConfig) -> MonteCarloResult:
+    def run(
+        self, config: MonteCarloConfig, orchestration_config: OrchestrationConfig | None = None
+    ) -> MonteCarloResult:
         """Sample, execute, and collect the results for one Monte Carlo study.
 
         Args:
             config: The study configuration (already validated by its
                 own ``__post_init__``).
+            orchestration_config: An optional Version 34 orchestration
+                configuration, forwarded unchanged to
+                :meth:`~femtoolkit.studies.runner.StudyRunner.run`.
+                ``None`` (the default) runs every sample sequentially --
+                identical to every prior version's behavior. Ignored
+                when ``config.fail_fast`` is ``True`` (see the module
+                docstring's "Parallel execution and reproducibility"
+                section) -- that path always runs sequentially,
+                regardless of this argument.
 
         Returns:
             A :class:`MonteCarloResult`.
@@ -311,7 +342,7 @@ class MonteCarloRunner:
                 scenarios=scenarios,
                 max_scenarios=max(config.max_samples, len(scenarios)),
             )
-            study_result = self._study_runner.run(study)
+            study_result = self._study_runner.run(study, orchestration_config=orchestration_config)
 
         return MonteCarloResult(
             config=config,

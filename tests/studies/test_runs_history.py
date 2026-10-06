@@ -114,3 +114,51 @@ def test_run_history_save_and_load(tmp_path) -> None:
 def test_run_history_load_missing_file_raises(tmp_path) -> None:
     with pytest.raises(ValidationError):
         RunHistory.load(tmp_path / "does_not_exist.json")
+
+
+# --- Version 34: execution_metadata ---
+
+
+def test_record_from_run_without_execution_metadata_defaults_to_none() -> None:
+    project = _mechanical_project()
+    run = SimulationRunManager().execute(project)
+    record = record_from_run(run)
+    assert record.execution_metadata is None
+
+
+def test_record_from_run_attaches_execution_metadata() -> None:
+    project = _mechanical_project()
+    run = SimulationRunManager().execute(project)
+    metadata = {
+        "execution_mode": "parallel", "worker_count": 4, "total_tasks": 10,
+        "completed_tasks": 10, "failed_tasks": 0, "cancelled_tasks": 0,
+        "total_elapsed_seconds": 1.23,
+    }
+    record = record_from_run(run, execution_metadata=metadata)
+    assert record.execution_metadata == metadata
+
+
+def test_execution_metadata_round_trips_through_json() -> None:
+    project = _mechanical_project()
+    run = SimulationRunManager().execute(project)
+    metadata = {"execution_mode": "serial", "worker_count": 1, "total_tasks": 1,
+                "completed_tasks": 1, "failed_tasks": 0, "cancelled_tasks": 0,
+                "total_elapsed_seconds": 0.05}
+    history = RunHistory()
+    history.add(record_from_run(run, execution_metadata=metadata))
+
+    restored = RunHistory.from_json(history.to_json())
+    assert restored.all()[0].execution_metadata == metadata
+
+
+def test_old_style_json_without_execution_metadata_loads_as_none() -> None:
+    project = _mechanical_project()
+    run = SimulationRunManager().execute(project)
+    record = record_from_run(run)
+    data = record.to_dict()
+    del data["execution_metadata"]  # simulate a pre-Version-34 persisted record
+
+    import json
+
+    restored = RunHistory.from_json(json.dumps([data]))
+    assert restored.all()[0].execution_metadata is None

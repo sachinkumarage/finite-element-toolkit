@@ -42,12 +42,34 @@ can move it to a different list position just like any other gene.
 Reproducible via ``config.seed``. No mathematical global-optimality
 guarantee is made or implied -- this is a well-known, effective
 heuristic, not a convergence proof.
+
+**Version 34 batched evaluation: generation 0 only.** This
+implementation is "steady-state": a trial that beats its target
+replaces it in ``population``/``population_evaluations`` *immediately*
+(not at the end of the generation), so a later target index's mutation
+(which draws its three donor vectors from the *whole* population,
+including already-replaced indices) can legitimately see an earlier
+index's just-replaced value within the same generation. That is a real,
+intentional property of this DE variant, not a bug -- changing it to
+evaluate a whole generation against a frozen snapshot would be a
+genuine behavioral change (different accepted trials for the same seed)
+that this version does not make. Only generation 0's initial
+population -- independent by construction in every one of this
+package's population-based algorithms -- is evaluated as a batch (via
+:func:`~femtoolkit.optimization.algorithms._batch_support.evaluate_vector_batch`)
+when ``orchestration_config`` requests parallel execution; the
+per-generation trial loop always evaluates one trial at a time, exactly
+as before.
 """
 
 from __future__ import annotations
 
 import numpy as np
 
+from femtoolkit.optimization.algorithms._batch_support import (
+    count_consecutive_failures,
+    evaluate_vector_batch,
+)
 from femtoolkit.optimization.algorithms._encoding import (
     bounds_arrays,
     decode_vector,
@@ -67,6 +89,7 @@ from femtoolkit.optimization.evaluation import (
 )
 from femtoolkit.optimization.history import OptimizationHistory
 from femtoolkit.optimization.problems import OptimizationProblem
+from femtoolkit.orchestration.config import OrchestrationConfig
 from femtoolkit.runs.manager import SimulationRunManager
 
 
@@ -80,6 +103,7 @@ class DifferentialEvolution(OptimizationAlgorithm):
         run_manager: SimulationRunManager,
         history: OptimizationHistory,
         starting_evaluation: DesignEvaluation | None = None,
+        orchestration_config: OrchestrationConfig | None = None,
     ) -> StopReason:
         del starting_evaluation  # DE initializes its own random population
         rng = np.random.default_rng(config.seed)
@@ -110,7 +134,17 @@ class DifferentialEvolution(OptimizationAlgorithm):
             return evaluation
 
         population = [sample_vector(design_variables, rng) for _ in range(population_size)]
-        population_evaluations = [_evaluate(vector, generation=0) for vector in population]
+        if orchestration_config is not None:
+            population_evaluations = evaluate_vector_batch(
+                population, 0, problem, f"{problem.name}-de", evaluation_index, history,
+                orchestration_config,
+            )
+            evaluation_index += len(population_evaluations)
+            consecutive_failures = count_consecutive_failures(
+                population_evaluations, consecutive_failures
+            )
+        else:
+            population_evaluations = [_evaluate(vector, generation=0) for vector in population]
 
         generation = 0
         while True:

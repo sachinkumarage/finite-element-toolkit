@@ -20,11 +20,20 @@ material field, since a nodal load magnitude accepts any finite real
 number -- unlike thickness or Young's modulus, it needs no positivity
 constraint that would otherwise clip a benchmark's natural domain
 (e.g. Rastrigin's standard ``[-5.12, 5.12]``).
+
+**Picklability (Version 34).** The resulting objective's ``evaluate``
+is a small, module-level, frozen ``@dataclass`` callable
+(:class:`_BenchmarkObjective`), not a closure -- so a benchmark problem
+built here can be used directly to exercise a population-based
+algorithm's parallel evaluation path (see
+:mod:`femtoolkit.optimization.objectives`'s module docstring for why
+this matters).
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 
 import numpy as np
 
@@ -61,6 +70,25 @@ def minimal_benchmark_project(n_dimensions: int) -> Project:
         LoadConfig(region="right", dof="Y", magnitude=-100.0) for _ in range(n_dimensions)
     ]
     return project
+
+
+@dataclass(frozen=True)
+class _BenchmarkObjective:
+    """Picklable callable evaluating ``function`` on a design's variable vector.
+
+    A plain module-level class rather than a closure (see the module
+    docstring's "Picklability" section) -- ``function`` itself
+    (:func:`~femtoolkit.optimization.benchmarks.sphere.sphere` and its
+    siblings) is already a plain module-level function, so the whole
+    callable is picklable end to end.
+    """
+
+    function: Callable[[np.ndarray], float]
+    variable_names: Sequence[str]
+
+    def __call__(self, context) -> float:  # noqa: ANN001
+        vector = np.array([context.design_variables[name] for name in self.variable_names])
+        return self.function(vector)
 
 
 def build_benchmark_problem(
@@ -108,12 +136,9 @@ def build_benchmark_problem(
     ]
     variable_names = [variable.name for variable in variables]
 
-    def _evaluate(context) -> float:  # noqa: ANN001
-        vector = np.array([context.design_variables[name] for name in variable_names])
-        return function(vector)
-
     objective = Objective(
-        name=objective_name, direction=ObjectiveDirection.MINIMIZE, evaluate=_evaluate
+        name=objective_name, direction=ObjectiveDirection.MINIMIZE,
+        evaluate=_BenchmarkObjective(function, variable_names),
     )
     return OptimizationProblem(
         name=name,

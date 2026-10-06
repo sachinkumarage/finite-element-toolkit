@@ -158,3 +158,34 @@ def test_runner_handles_unsolvable_design_without_crashing() -> None:
     result = OptimizationRunner().run(problem, config)
     assert result.baseline.status == DesignStatus.FAILED
     assert all(e.status == DesignStatus.FAILED for e in result.history.evaluations)
+
+
+# --- Version 34: orchestration_config forwarding ---
+
+
+def test_runner_forwards_orchestration_config_to_algorithm() -> None:
+    from femtoolkit.orchestration.config import OrchestrationConfig
+
+    problem = OptimizationProblem(
+        name="beam-parallel", base_project=_base_project(),
+        design_variables=[_thickness_variable()], objectives=[_displacement_objective()],
+    )
+    config = OptimizationConfig(
+        algorithm="genetic_algorithm", population_size=6, max_evaluations=12, seed=2,
+    )
+    result = OptimizationRunner().run(
+        problem, config,
+        orchestration_config=OrchestrationConfig(execution_mode="parallel", max_workers=2),
+    )
+    assert result.history.n_evaluations <= 12
+    assert result.baseline is not None
+
+
+def test_runner_default_orchestration_config_is_serial() -> None:
+    problem = OptimizationProblem(
+        name="beam-serial", base_project=_base_project(),
+        design_variables=[_thickness_variable()], objectives=[_displacement_objective()],
+    )
+    config = OptimizationConfig(algorithm="coordinate_search", max_evaluations=10, seed=1)
+    result = OptimizationRunner().run(problem, config)
+    assert result.history.n_evaluations > 0

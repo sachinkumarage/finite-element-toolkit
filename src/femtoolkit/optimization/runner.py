@@ -22,6 +22,7 @@ from femtoolkit.optimization.history import OptimizationHistory
 from femtoolkit.optimization.problems import OptimizationProblem
 from femtoolkit.optimization.results import OptimizationResult
 from femtoolkit.optimization.robust import RobustDesignConfig, validate_robust_budget
+from femtoolkit.orchestration.config import OrchestrationConfig
 from femtoolkit.runs.manager import SimulationRunManager
 
 
@@ -36,6 +37,7 @@ class OptimizationRunner:
         problem: OptimizationProblem,
         config: OptimizationConfig,
         robust_config: RobustDesignConfig | None = None,
+        orchestration_config: OrchestrationConfig | None = None,
     ) -> OptimizationResult:
         """Evaluate the baseline design, then search ``problem``'s design space.
 
@@ -59,6 +61,15 @@ class OptimizationRunner:
                 own objectives/constraints were built with
                 :func:`~femtoolkit.optimization.robust.robust_objective_statistic`/
                 :func:`~femtoolkit.optimization.robust.robust_constraint_statistic`.
+            orchestration_config: An optional Version 34 orchestration
+                configuration, forwarded unchanged to the configured
+                algorithm's
+                :meth:`~femtoolkit.optimization.algorithms.base.OptimizationAlgorithm.optimize`.
+                ``None`` (the default) evaluates every design one at a
+                time, in the calling process -- identical to every
+                prior version's behavior. The baseline evaluation above
+                is always serial, regardless of this setting -- it is
+                a single design, with nothing to batch it against.
 
         Returns:
             An :class:`~femtoolkit.optimization.results.OptimizationResult`.
@@ -83,7 +94,8 @@ class OptimizationRunner:
         history = OptimizationHistory()
         algorithm = build_algorithm(config.algorithm)
         stop_reason = algorithm.optimize(
-            problem, config, self._run_manager, history, starting_evaluation=baseline
+            problem, config, self._run_manager, history, starting_evaluation=baseline,
+            orchestration_config=orchestration_config,
         )
 
         return OptimizationResult(

@@ -10,14 +10,18 @@ confidence intervals, correlation, limit exceedance, and a downloadable
 report -- with no distribution, sampling, Monte Carlo execution, or
 statistical logic implemented in this module itself.
 
-**On study cancellation (spec section 34).** This GUI runs each page
-synchronously within one Streamlit script execution, the same way the
-Version 30 Simulation Studies page does -- there is no in-process
-mechanism in this architecture to safely interrupt a study partway
-through and preserve its partial results. A genuine cancellation
-mechanism is therefore not implemented here; ``max_samples`` and a
-deliberately modest default sample count are this page's safeguard
-against an unexpectedly long-running study instead.
+**On study cancellation.** This GUI runs each page synchronously within
+one Streamlit script execution, the same way the Version 30 Simulation
+Studies page does -- there is no in-process mechanism in this
+architecture to safely interrupt a study partway through and preserve
+its partial results. A genuine cancellation mechanism is therefore not
+implemented here, even with Version 34's Execution Mode control below
+(parallel execution still blocks the page until the whole batch
+finishes -- see
+:func:`femtoolkit.gui.components.render_execution_mode_controls`'s
+docstring); ``max_samples`` and a deliberately modest default sample
+count are this page's safeguard against an unexpectedly long-running
+study instead.
 """
 
 from __future__ import annotations
@@ -26,7 +30,7 @@ import streamlit as st
 
 from femtoolkit.application.exceptions_display import describe_error
 from femtoolkit.exceptions import FiniteElementToolkitError
-from femtoolkit.gui.components import require_project
+from femtoolkit.gui.components import render_execution_mode_controls, require_project
 from femtoolkit.gui.state import AppState
 from femtoolkit.studies.extractors import EXTRACTORS, get_extractor
 from femtoolkit.uncertainty.confidence import confidence_interval_mean
@@ -186,6 +190,13 @@ def _render_execution(state: AppState) -> None:
         "Output quantities", options=sorted(EXTRACTORS), default=["maximum_displacement"]
     )
     study_name = st.text_input("Study name", value=f"{state.project.name} Uncertainty Study")
+    orchestration_config = render_execution_mode_controls(key_prefix="uncertainty")
+    if orchestration_config is not None and fail_fast:
+        st.caption(
+            "Note: 'Stop at first failure' always runs sequentially, regardless of "
+            "Execution Mode -- true immediate-stop semantics are inherently sequential "
+            "(see femtoolkit.uncertainty.monte_carlo's module docstring)."
+        )
 
     if st.button("Run Monte Carlo Study", type="primary", disabled=not (parameters and quantities)):
         config = MonteCarloConfig(
@@ -202,7 +213,7 @@ def _render_execution(state: AppState) -> None:
         )
         try:
             with st.spinner(f"Running {config.n_samples} samples..."):
-                result = MonteCarloRunner().run(config)
+                result = MonteCarloRunner().run(config, orchestration_config=orchestration_config)
         except FiniteElementToolkitError as exc:
             st.error(describe_error(exc))
             return
@@ -213,6 +224,11 @@ def _render_execution(state: AppState) -> None:
             f"Successful: {result.n_successful}. Failed: {result.n_failed}. "
             f"Rejected as physically invalid: {result.n_invalid}."
         )
+        if orchestration_config is not None and not fail_fast:
+            st.caption(
+                f"Executed in parallel across {orchestration_config.max_workers} worker "
+                "process(es)."
+            )
 
 
 def _current_result():

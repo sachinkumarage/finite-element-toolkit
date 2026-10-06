@@ -40,6 +40,15 @@ design point -- never a rigorous reliability index (no FORM/SORM is
 implemented anywhere in this toolkit). A design that appears to satisfy
 ``P(sigma > sigma_allow) <= p_max`` based on 20 samples carries real
 sampling uncertainty the report must not hide.
+
+**Picklability (Version 34).** :func:`robust_objective_statistic` and
+:func:`robust_constraint_statistic` return small, module-level, frozen
+``@dataclass`` callables rather than nested-function closures, so a
+robust objective/constraint can be sent to a worker process for
+parallel optimization evaluation (:mod:`femtoolkit.optimization.batch`)
+-- see :mod:`femtoolkit.optimization.objectives`'s module docstring for
+why this matters. As there, this still requires the caller-supplied
+``build_parameters`` to itself be a picklable, module-level function.
 """
 
 from __future__ import annotations
@@ -274,6 +283,43 @@ def _run_inner_study(
     return result.output_values(get_extractor(quantity_name))
 
 
+@dataclass(frozen=True)
+class _RobustStatisticFunction:
+    """Shared, picklable implementation behind both robust builders below.
+
+    ``metadata_key`` and ``statistic_attr`` are the two small points
+    :func:`robust_objective_statistic` and
+    :func:`robust_constraint_statistic` differ at (which
+    ``DesignContext.metadata`` bucket to record into, and which of
+    ``robust_config``'s two statistic settings to use) -- kept as one
+    shared class rather than two near-duplicate ones.
+    """
+
+    build_parameters: Callable[[DesignContext], list[UncertainParameter]]
+    quantity_name: str
+    robust_config: RobustDesignConfig
+    metadata_key: str
+    statistic_attr: str
+    threshold: float | None = None
+    direction: str = "above"
+
+    def __call__(self, context: DesignContext) -> float | None:
+        values = _run_inner_study(
+            context, self.build_parameters, self.quantity_name, self.robust_config
+        )
+        statistic = getattr(self.robust_config, self.statistic_attr)
+        statistic_value = _compute_statistic(
+            values, statistic, self.robust_config.percentile, self.threshold, self.direction
+        )
+        if statistic_value is not None:
+            context.metadata.setdefault(self.metadata_key, {})[self.quantity_name] = {
+                "statistic": statistic,
+                "value": statistic_value,
+                "n_samples": int(values.size),
+            }
+        return statistic_value
+
+
 def robust_objective_statistic(
     build_parameters: Callable[[DesignContext], list[UncertainParameter]],
     quantity_name: str,
@@ -310,25 +356,15 @@ def robust_objective_statistic(
     Returns:
         An :data:`~femtoolkit.optimization.objectives.ObjectiveFunction`.
     """
-
-    def _evaluate(context: DesignContext) -> float | None:
-        values = _run_inner_study(context, build_parameters, quantity_name, robust_config)
-        statistic_value = _compute_statistic(
-            values,
-            robust_config.objective_statistic,
-            robust_config.percentile,
-            threshold,
-            direction,
-        )
-        if statistic_value is not None:
-            context.metadata.setdefault("robust_objectives", {})[quantity_name] = {
-                "statistic": robust_config.objective_statistic,
-                "value": statistic_value,
-                "n_samples": int(values.size),
-            }
-        return statistic_value
-
-    return _evaluate
+    return _RobustStatisticFunction(
+        build_parameters,
+        quantity_name,
+        robust_config,
+        metadata_key="robust_objectives",
+        statistic_attr="objective_statistic",
+        threshold=threshold,
+        direction=direction,
+    )
 
 
 def robust_constraint_statistic(
@@ -362,25 +398,15 @@ def robust_constraint_statistic(
     Returns:
         A :data:`~femtoolkit.optimization.constraints.ConstraintFunction`.
     """
-
-    def _evaluate(context: DesignContext) -> float | None:
-        values = _run_inner_study(context, build_parameters, quantity_name, robust_config)
-        statistic_value = _compute_statistic(
-            values,
-            robust_config.constraint_statistic,
-            robust_config.percentile,
-            threshold,
-            direction,
-        )
-        if statistic_value is not None:
-            context.metadata.setdefault("robust_constraints", {})[quantity_name] = {
-                "statistic": robust_config.constraint_statistic,
-                "value": statistic_value,
-                "n_samples": int(values.size),
-            }
-        return statistic_value
-
-    return _evaluate
+    return _RobustStatisticFunction(
+        build_parameters,
+        quantity_name,
+        robust_config,
+        metadata_key="robust_constraints",
+        statistic_attr="constraint_statistic",
+        threshold=threshold,
+        direction=direction,
+    )
 
 
 __all__ = [
