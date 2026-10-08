@@ -29,6 +29,7 @@ from femtoolkit.gui.workflow_pages import (
     run_page,
     solver_page,
     studies_page,
+    surrogate_page,
     uncertainty_page,
     verification_page,
     visualization_page,
@@ -48,6 +49,7 @@ _PAGES = {
     "Simulation Studies": studies_page,
     "Uncertainty Analysis": uncertainty_page,
     "Optimization": optimization_page,
+    "Surrogate / ROM": surrogate_page,
 }
 
 

@@ -383,3 +383,77 @@ class DuplicateScenarioIdError(StudyError):
     Every scenario in a study must be uniquely identifiable so its run
     can be unambiguously traced back to it in run history and reports.
     """
+
+
+class SurrogateError(FiniteElementToolkitError):
+    """Base class for errors raised by :mod:`femtoolkit.surrogate` (Version 35).
+
+    Catching this exception handles any problem specific to snapshot
+    datasets, surrogate models, or reduced-order models without needing
+    to know the precise cause.
+    """
+
+
+class InsufficientSnapshotsError(SurrogateError):
+    """Raised when a dataset does not contain enough snapshots for the requested operation.
+
+    For example, fitting a second-order polynomial surrogate needs at
+    least as many snapshots as the model has coefficients, and k-fold
+    cross-validation needs at least ``k`` snapshots.
+    """
+
+
+class InconsistentSnapshotError(SurrogateError):
+    """Raised when a snapshot's inputs/outputs do not match a dataset's declared shape.
+
+    Covers a snapshot missing a declared feature/response name, carrying
+    an extra one, or carrying a non-finite value -- this is what keeps a
+    :class:`~femtoolkit.surrogate.datasets.SnapshotDataset`'s
+    input-output correspondence from silently becoming misaligned.
+    """
+
+
+class InvalidScalingConfigurationError(SurrogateError):
+    """Raised when a :mod:`femtoolkit.surrogate.scaling` scaler is used incorrectly.
+
+    For example, calling :meth:`~femtoolkit.surrogate.scaling.Scaler.transform`
+    before :meth:`~femtoolkit.surrogate.scaling.Scaler.fit`, or fitting a
+    scaler on an empty array.
+    """
+
+
+class SurrogateFittingError(SurrogateError):
+    """Raised when a surrogate model cannot be fit to its training data.
+
+    Covers a singular or ill-conditioned least-squares system (e.g. a
+    polynomial model with more coefficients than training points) and a
+    non-finite value produced during fitting.
+    """
+
+
+class InvalidReducedBasisConfigurationError(SurrogateError):
+    """Raised when a POD reduced-basis request is invalid.
+
+    For example, a requested rank of zero or larger than the number of
+    available snapshots, or an energy threshold outside ``(0, 1]``.
+    """
+
+
+class ModelPersistenceError(SurrogateError):
+    """Raised when a saved surrogate/ROM model file is missing, corrupted, or malformed.
+
+    Raised instead of letting a raw :exc:`OSError`/:exc:`KeyError`/
+    :exc:`json.JSONDecodeError` propagate, so callers can catch one
+    toolkit-specific exception for any persistence failure.
+    """
+
+
+class IncompatibleModelVersionError(SurrogateError):
+    """Raised when a saved model's schema/software version is incompatible with this toolkit.
+
+    A model file records the toolkit version and a persistence schema
+    version it was written with (see
+    :mod:`femtoolkit.surrogate.persistence`); this is raised rather than
+    attempting to deserialize a structure that may have since changed
+    shape.
+    """

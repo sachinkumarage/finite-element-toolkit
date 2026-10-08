@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "femtoolkit"
-version = "34.0.0"
+version = "35.0.0"
 description = "An open-source Python toolkit for finite element analysis, built incrementally from the ground up."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -33,6 +33,9 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "slow: exercises real FEA simulations end to end (seconds, not milliseconds).",
+]
 
 [tool.ruff]
 line-length = 100

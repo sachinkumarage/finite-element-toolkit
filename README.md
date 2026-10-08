@@ -3045,6 +3045,50 @@ print(f"{summary.completed_tasks}/{summary.total_tasks} tasks completed "
 
 Version 34 does **not** include distributed computing, MPI, cluster scheduling, cloud execution, GPU/CUDA, a shared-memory FEA solver, or parallel sparse matrix assembly/element-level computation (that remains Version 27's separate, already-existing scope) -- it is focused on safe, local, process-based parallel execution of independent simulation tasks. `OrchestrationConfig.chunk_size` is defined and validated but not currently used by `LocalProcessBackend` (reserved for a future version that batches dispatch). `timeout` is a documented "no progress for N seconds" approximation across the whole batch, not a true independent per-task wall-clock budget. `random_search`/`coordinate_search` accept `orchestration_config` for interface consistency but do not batch their evaluations in this version. The GUI's parallel execution still blocks the page until the whole batch finishes -- Streamlit has no background-task model wired in here. Parallel execution is never guaranteed to be faster than serial: a small population spread over many generations can be *slower* in parallel, since `LocalProcessBackend` creates a fresh worker pool per batch and that startup cost is paid once per sub-batch (directly demonstrated, honestly, in `examples/orchestration/parallel_optimization.py`).
 
+## Version 35
+
+Versions 1-34 built an increasingly capable, but always *expensive*, high-fidelity FEA model: every study, Monte Carlo sample, and optimization candidate in Versions 30-34 means another real solve. Version 35 adds a transparent, mathematically honest approximation layer on top of that model -- reduced-order modeling and surrogate-based engineering analysis -- so repeated evaluations can be made cheap without ever letting the approximation quietly replace the real thing. The full technical guide is [`docs/surrogate.md`](docs/surrogate.md); this section is the shorter architectural summary matching every prior version's style.
+
+### Two approximation strategies, one package
+
+`femtoolkit.surrogate` keeps two genuinely different techniques side by side rather than blurring them into one API: **reduced-order modeling** (`femtoolkit.surrogate.rom`, Proper Orthogonal Decomposition) approximates a *full-field* solution (`u ~ V q`, an SVD-derived reduced basis `V` and reduced coordinates `q`), while **surrogate modeling** (`femtoolkit.surrogate.models`, `PolynomialRegressionSurrogate`/`RBFSurrogate`) approximates a *scalar* response directly as a function of the design variables. Both are built from `Snapshot`/`SnapshotDataset` (`femtoolkit.surrogate.datasets`), which validates every snapshot's inputs/outputs against the dataset's declared names as it is added, so the correspondence between an input and the output it produced can never silently become misaligned.
+
+### Deliberately not a black box
+
+Every model `femtoolkit.surrogate.models` provides is interpretable by construction -- ordinary least squares on a low-order polynomial expansion, or a radial basis function interpolant with a data-driven shape parameter -- and every feature/response passes through an explicit, fit-on-training-data-only `Scaler` (`StandardScaler`/`MinMaxScaler`) so a prediction is always returned in physical units, never a raw normalized value. No neural network, Gaussian process, or AutoML search is in scope; see `docs/surrogate.md`'s scope-boundary section for the complete list.
+
+### Statistical accuracy is not engineering acceptability
+
+`train_surrogate` (`femtoolkit.surrogate.workflows.training`) never evaluates a model only on its own training data -- it always reports held-out validation/test metrics (`MetricSet`: MAE, RMSE, R^2, relative error) separately, plus optional k-fold cross-validation and caller-defined `EngineeringTolerance` checks. `SurrogateValidationReport.meets_engineering_tolerances` is `True` only if every *configured* tolerance actually passed on the held-out split -- a good global R^2 never gets silently relabeled "safe."
+
+### The surrogate is never mistaken for the real thing
+
+Every `SurrogatePrediction` carries an explicit `is_surrogate_prediction = True` flag, the originating model/dataset identity, and an `ApplicabilityDomain` status (`WITHIN_TRAINING_DOMAIN`/`BOUNDARY`/`OUTSIDE_TRAINING_DOMAIN`/`INVALID`, `femtoolkit.surrogate.domain`) -- a surrogate is never confidently trusted to extrapolate. `verify_against_high_fidelity` (`femtoolkit.surrogate.workflows.verification`) both predicts and actually re-simulates held-out design points, returning an `AcceptanceStatus` (`ACCEPT`/`REVIEW`/`REJECT`/`FAILED`) per point -- the mechanism behind every example in `examples/surrogate/` that ends with a high-fidelity check, never a surrogate-only result reported as verified.
+
+### Integration without silent substitution
+
+`generate_training_dataset` reuses the Version 30 parameter-sweep machinery and the Version 34 `evaluate_simulation_batch` for training-data generation (serial by default, parallel on request -- no second parallel-execution system). `EvaluationBackend` (`HIGH_FIDELITY`/`SURROGATE`) makes explicit, wherever a report is built, whether a Version 31 Monte Carlo study's repeated evaluations came from real FEA or a surrogate. `Evaluator`/`HighFidelityEvaluator`/`SurrogateEvaluator` (`femtoolkit.surrogate.workflows.evaluator`) is the architecture a future version needs to run surrogate-assisted optimization -- the Version 33 algorithms are not yet wired to accept one in this version, by design (see the Version 36 preview below).
+
+### Example usage
+
+```python
+from femtoolkit.studies.extractors import get_extractor
+from femtoolkit.studies.parameter_sweep import ParameterDefinition
+from femtoolkit.surrogate.workflows.training import TrainingConfig, generate_training_dataset, train_surrogate
+
+thickness = ParameterDefinition(path="mesh.thickness", label="Thickness", values=[0.006, 0.008, 0.010, 0.012])
+dataset = generate_training_dataset(
+    base_project, [thickness], {"maximum_displacement": get_extractor("maximum_displacement")}
+)
+model, report = train_surrogate(dataset, TrainingConfig(model_type="polynomial", model_kwargs={"degree": 2}))
+print(report.test_metrics["maximum_displacement"].r2)       # held-out accuracy, never training-only
+print(model.predict_point({"mesh.thickness": 0.009}).values)  # a labeled surrogate prediction, in physical units
+```
+
+### Limitations
+
+Version 35 does **not** include neural networks, deep learning, Gaussian process regression, Bayesian optimization, advanced active learning, topology/shape optimization, adjoint methods, distributed/GPU surrogate training, or formal uncertainty quantification of a surrogate's own prediction error. `recommend_candidates` only ever ranks a caller-supplied candidate pool -- it never proposes new candidate points itself and never triggers a high-fidelity simulation on its own. `Evaluator`/`SurrogateEvaluator` is architecture only in this version; no Version 33 optimization algorithm accepts one yet. POD in this version reduces whatever full-field vector a caller extracts from a completed simulation run -- it does not itself know how to extract a nodal displacement field from every analysis type.
+
 ## Project Structure
 
 ```text
@@ -3407,6 +3451,27 @@ finite-element-toolkit/
 │   │                       # build_execution_summary,
 │   │                       # execution_summary_to_dict -- reuses Version 27's
 │   │                       # speedup/parallel_efficiency directly)
+│   ├── surrogate/           # Version 35 reduced-order modeling and surrogate
+│   │                       # analysis: datasets.py (Snapshot, SnapshotDataset,
+│   │                       # DatasetSplit, collect_snapshots_from_runs);
+│   │                       # scaling.py (Scaler, StandardScaler, MinMaxScaler);
+│   │                       # metrics.py (MetricSet: MAE, RMSE, R^2, relative
+│   │                       # error); domain.py (ApplicabilityDomain,
+│   │                       # DomainStatus); validation.py
+│   │                       # (SurrogateValidationReport, EngineeringTolerance,
+│   │                       # k_fold_cross_validate); persistence.py (JSON/.npz
+│   │                       # save/load, never pickle); report.py
+│   │                       # (SurrogateReport); models/ (SurrogateModel ABC,
+│   │                       # PolynomialRegressionSurrogate, RBFSurrogate);
+│   │                       # rom/ (PODModel -- SVD-based Proper Orthogonal
+│   │                       # Decomposition; snapshots.py -- FieldSnapshot,
+│   │                       # build_snapshot_matrix); workflows/
+│   │                       # (generate_training_dataset/train_surrogate --
+│   │                       # reusing Version 30/34; HighFidelityEvaluator/
+│   │                       # SurrogateEvaluator -- Version 33 evaluator
+│   │                       # architecture; verify_against_high_fidelity;
+│   │                       # recommend_candidates -- adaptive-sampling
+│   │                       # foundation)
 │   ├── units/               # SI unit constants
 │   ├── exceptions/          # Custom exception types (incl. DegenerateElementError,
 │   │                       # DuplicateNodeCoordinatesError,
@@ -3436,7 +3501,12 @@ finite-element-toolkit/
 │   │                       # [Version 30], Uncertainty Analysis
 │   │                       # [Version 31], Optimization [Version 32/33 --
 │   │                       # Robust Design section, population-based
-│   │                       # algorithm parameters, convergence plots])
+│   │                       # algorithm parameters, convergence plots],
+│   │                       # Surrogate / ROM Workspace [Version 35 --
+│   │                       # dataset builder, surrogate training, POD
+│   │                       # basis fitting, validation metrics,
+│   │                       # applicability-domain check, high-fidelity
+│   │                       # verification, downloadable report])
 │   ├── config.py             # Package metadata and defaults
 │   └── logging_config.py     # Package logger configuration
 ├── docs/
@@ -3449,7 +3519,9 @@ finite-element-toolkit/
 │   ├── reporting.md           # Version 29 engineering reporting guide
 │   ├── studies.md             # Version 30 simulation studies guide
 │   ├── uncertainty.md         # Version 31 uncertainty quantification guide
-│   └── optimization.md        # Version 32/33 engineering optimization guide
+│   ├── optimization.md        # Version 32/33 engineering optimization guide
+│   └── surrogate.md           # Version 35 reduced-order modeling and
+│                               # surrogate analysis guide
 ├── examples/                  # Runnable example scripts (incl. studies/:
 │                               # cantilever_load_study.py,
 │                               # material_comparison_study.py; uncertainty/:
@@ -3468,7 +3540,12 @@ finite-element-toolkit/
 │                               # orchestration/: parallel_parameter_study.py,
 │                               # parallel_monte_carlo.py,
 │                               # parallel_optimization.py,
-│                               # failure_handling.py)
+│                               # failure_handling.py; surrogate/:
+│                               # benchmark_functions.py,
+│                               # cantilever_displacement_surrogate.py,
+│                               # cantilever_stress_surrogate.py,
+│                               # pod_cantilever_displacement_field.py,
+│                               # surrogate_assisted_optimization.py)
 └── tests/
     ├── ...                      # Unit tests, one file per module
     ├── validation/                # Engineering validation against
@@ -3489,15 +3566,20 @@ finite-element-toolkit/
     │                                 # sampling, Monte Carlo, statistics,
     │                                 # confidence, correlation,
     │                                 # reliability, report, plots)
-    └── optimization/                # Version 32/33 dedicated suite
-                                      # (variables, objectives, constraints,
-                                      # evaluation, problems, history,
-                                      # pareto, random search, coordinate
-                                      # search, runner, results, report,
-                                      # plots, algorithm config, encoding,
-                                      # differential evolution, genetic
-                                      # algorithm, particle swarm, NSGA-II,
-                                      # robust design, benchmarks)
+    ├── optimization/                # Version 32/33 dedicated suite
+    │                                 # (variables, objectives, constraints,
+    │                                 # evaluation, problems, history,
+    │                                 # pareto, random search, coordinate
+    │                                 # search, runner, results, report,
+    │                                 # plots, algorithm config, encoding,
+    │                                 # differential evolution, genetic
+    │                                 # algorithm, particle swarm, NSGA-II,
+    │                                 # robust design, benchmarks)
+    └── surrogate/                    # Version 35 dedicated suite
+                                       # (datasets, scaling, metrics,
+                                       # validation, domain, models, POD/
+                                       # ROM, snapshots, persistence,
+                                       # integration with Version 30/31/33/34)
 ```
 
 ## Testing
@@ -3661,6 +3743,11 @@ python examples/orchestration/parallel_parameter_study.py                    # V
 python examples/orchestration/parallel_monte_carlo.py                        # Version 34: identical Monte Carlo samples across 1/2/4 workers
 python examples/orchestration/parallel_optimization.py                       # Version 34: parallel genetic-algorithm candidate evaluation, honest timing
 python examples/orchestration/failure_handling.py                            # Version 34: mixed valid/invalid scenarios in one parallel batch
+python examples/surrogate/benchmark_functions.py                             # Version 35: polynomial/RBF surrogates on analytical y=x^2, y=sin(x), y=x1^2+x2^2
+python examples/surrogate/cantilever_displacement_surrogate.py               # Version 35: polynomial surrogate for maximum displacement
+python examples/surrogate/cantilever_stress_surrogate.py                     # Version 35: stress surrogate, verified against held-out high-fidelity FEA
+python examples/surrogate/pod_cantilever_displacement_field.py               # Version 35: POD basis from multi-case displacement fields + reconstruction error
+python examples/surrogate/surrogate_assisted_optimization.py                 # Version 35: surrogate-screened candidate, accepted only after high-fidelity verification
 ```
 
 ## Roadmap
@@ -3668,7 +3755,7 @@ python examples/orchestration/failure_handling.py                            # V
 Future versions will build a more complete FEA solver on top of this foundation. None of the following is implemented yet:
 
 - **Version 28** — Advanced Preconditioning & Scalable Iterative Solvers: Jacobi and incomplete-LU/incomplete-Cholesky preconditioning, improved Conjugate Gradient and GMRES workflows, preconditioner selection, richer solver convergence diagnostics, more robust handling of difficult (ill-conditioned) sparse systems, iterative-solver benchmarking, and improved large-model robustness, building on the execution and performance infrastructure Versions 26-27 establish (`SolverConvergenceRecord.preconditioner`, added in Version 29, is reserved for this)
-- **Version 35** — Advanced Reduced-Order Modeling & Surrogate-Based Engineering Analysis: reduced-order models, response-surface modeling, surrogate models trained on existing FEA results, adaptive sampling strategies, surrogate-assisted optimization (replacing or supplementing expensive real FEA evaluations in Version 32/33's search algorithms), model validation against high-fidelity FEA, and integration with the Version 31 uncertainty and Version 34 parallel-execution infrastructure (a surrogate model's own training data generation is itself an embarrassingly parallel batch of independent simulations)
+- **Version 36** — Advanced Surrogate-Assisted Optimization & Adaptive Engineering Design: adaptive sampling that actually proposes new candidate points (not just scores a caller-supplied pool, as Version 35's `recommend_candidates` foundation does), wiring `SurrogateEvaluator` into the Version 33 optimization algorithms themselves, active-learning-style design refinement, uncertainty-aware surrogate prediction, surrogate error indicators, automatic high-fidelity verification of optimization candidates, trust-region concepts for surrogate-based optimization, adaptive design-of-experiments, multi-fidelity modeling (high-fidelity/low-fidelity model fusion), and deeper integration with Version 31 robust design and Version 34 parallel execution
 - **Later** — Finite-strain viscoplasticity, crystal plasticity, anisotropic plasticity, damage mechanics, fracture mechanics, anisotropic hyperelasticity, Ogden and other advanced rubber models, mixed u-p (locking-free nearly-incompressible) elements, viscoelasticity, fully coupled nonlinear thermoplasticity, creep, contact, friction, phase-change heat transfer, fluid flow/CFD, electromagnetic analysis, an Updated Lagrangian formulation, the arc-length/Riks method, large-rotation beam kinematics, adaptive remeshing, explicit dynamics, unstructured/CAD-driven meshing, higher-order continuum elements, seismic-code response-spectrum combination rules, distributed-memory (MPI) or GPU solving, a full GUI redesign, PDF report generation, and more
 
 ## License
