@@ -483,3 +483,22 @@ class InsufficientInitialSamplesError(AdaptiveOptimizationError):
     surrogate model type to be fit at all (see
     :meth:`~femtoolkit.surrogate.models.base.SurrogateModel.fit`).
     """
+
+
+class MultiFidelityError(FiniteElementToolkitError):
+    """Base class for errors raised by :mod:`femtoolkit.multifidelity` (Version 37).
+
+    Catching this exception handles any problem specific to fidelity
+    models, paired datasets, discrepancy calculation, or fused
+    prediction without needing to know the precise cause.
+    """
+
+
+class IncompatibleFidelityResultError(MultiFidelityError):
+    """Raised when a low-fidelity and high-fidelity result cannot be paired or compared.
+
+    For example, one result is missing a response the other has, or
+    either result contains a non-finite value -- the discrepancy
+    ``delta(x) = y_H(x) - y_L(x)`` is only meaningful when both sides
+    describe exactly the same response quantities.
+    """

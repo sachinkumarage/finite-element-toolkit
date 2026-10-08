@@ -1,4 +1,4 @@
-"""Quickstart Streamlit application entry point (Version 36).
+"""Quickstart Streamlit application entry point (Version 37).
 
 Run with::
 
@@ -6,11 +6,12 @@ Run with::
 
 Deliberately thin: it sets up the page, builds the sidebar navigation, and
 dispatches to the selected page module under :mod:`app.streamlit.pages`. It
-contains no FEA, optimization, surrogate, or adaptive-sampling logic itself --
-see those pages, and the :mod:`femtoolkit` library they call, for that.
+contains no FEA, optimization, surrogate, adaptive-sampling, or multi-fidelity
+logic itself -- see those pages, and the :mod:`femtoolkit` library they call,
+for that.
 
 This is a separate, smaller companion to the existing full engineering GUI
-(``streamlit run src/femtoolkit/gui/app.py``) -- five pages for a quick local
+(``streamlit run src/femtoolkit/gui/app.py``) -- six pages for a quick local
 demo and future Streamlit Community Cloud deployment, not a replacement for the
 full project-building workflow.
 """
@@ -19,7 +20,14 @@ from __future__ import annotations
 
 import streamlit as st
 
-from app.streamlit.pages import fea, home, optimization, results, surrogate_optimization
+from app.streamlit.pages import (
+    fea,
+    home,
+    multifidelity,
+    optimization,
+    results,
+    surrogate_optimization,
+)
 from femtoolkit.config import __version__
 
 _PAGES = {
@@ -27,6 +35,7 @@ _PAGES = {
     "FEA Analysis": fea,
     "Optimization": optimization,
     "Surrogate-Assisted Optimization": surrogate_optimization,
+    "Multi-Fidelity": multifidelity,
     "Results": results,
 }
 

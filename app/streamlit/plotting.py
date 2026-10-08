@@ -28,3 +28,17 @@ def objective_history_frame(objective_values: list[float], label: str) -> pd.Dat
     """An evaluation-indexed objective-history frame for an optimization run."""
     frame = pd.DataFrame({"Evaluation": range(len(objective_values)), label: objective_values})
     return frame.set_index("Evaluation")
+
+
+def fidelity_error_comparison_frame(
+    low_fidelity_errors: list[float], fused_errors: list[float]
+) -> pd.DataFrame:
+    """A sample-indexed low-fidelity-error-vs-fused-error comparison frame."""
+    frame = pd.DataFrame(
+        {
+            "Sample": range(len(low_fidelity_errors)),
+            "Low-Fidelity Error": low_fidelity_errors,
+            "Fused-Model Error": fused_errors,
+        }
+    )
+    return frame.set_index("Sample")

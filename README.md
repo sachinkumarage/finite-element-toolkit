@@ -3136,16 +3136,64 @@ Version 36 does **not** include multi-fidelity modeling, co-kriging, Gaussian pr
 
 ## Running the Streamlit Application
 
-The quickstart Streamlit app (`streamlit_app.py`) is a small, separate companion to the full engineering GUI (`femtoolkit.gui`) -- five pages, no FEA/optimization/surrogate logic implemented outside the core library.
+The quickstart Streamlit app (`streamlit_app.py`) is a small, separate companion to the full engineering GUI (`femtoolkit.gui`) -- an interactive demonstration of the toolkit's capabilities, six pages, no FEA/optimization/surrogate/multi-fidelity logic implemented outside the core library.
 
 ```bash
 pip install -e ".[gui]"
 streamlit run streamlit_app.py
 ```
 
-Pages: **Home** (what the toolkit is), **FEA Analysis** (run the cantilever example), **Optimization** (a plain Version 33 search), **Surrogate-Assisted Optimization** (the Version 36 core workflow), and **Results** (the consolidated best-verified-design summary). See [`docs/adaptive.md`](docs/adaptive.md#the-quickstart-streamlit-application) for a page-by-page walkthrough.
+Pages: **Home** (what the toolkit is), **FEA Analysis** (run the cantilever example), **Optimization** (a plain Version 33 search), **Surrogate-Assisted Optimization** (the Version 36 core workflow), **Multi-Fidelity** (the Version 37 low-fidelity + high-fidelity + discrepancy fusion workflow), and **Results** (the consolidated best-verified-design summary). See [`docs/adaptive.md`](docs/adaptive.md#the-quickstart-streamlit-application) and [`docs/multifidelity.md`](docs/multifidelity.md#the-multi-fidelity-streamlit-page) for page-by-page walkthroughs.
 
 **Future Streamlit Community Cloud deployment.** Push this repository to GitHub, create a new app on [streamlit.io/cloud](https://streamlit.io/cloud) pointing at it, set the main file path to `streamlit_app.py`, and deploy. A root `requirements.txt` (`.[gui]`) already installs this package and its `gui` extra from the repository itself -- no absolute local paths, no secrets, no further setup needed for this version.
+
+## Version 37
+
+Version 36 answered "where should the next expensive sample go?" within a single fidelity level. Version 37 answers a different question: *can a cheap, approximate model and the expensive high-fidelity model be combined so the cheap model's systematic error is corrected?* It adds `femtoolkit.multifidelity`: a small, transparent multi-fidelity modeling layer built entirely on the existing V30 simulation pipeline and V35 surrogate machinery. The full technical guide is [`docs/multifidelity.md`](docs/multifidelity.md); this section is the shorter architectural summary matching every prior version's style.
+
+### The simplest fused model, and nothing more complicated
+
+For a design vector `x`, let `y_L(x)` be the low-fidelity result and `y_H(x)` the high-fidelity result. The **model discrepancy** is `delta(x) = y_H(x) - y_L(x)`, and the fused prediction is `y_hat_H(x) = y_L(x) + delta_hat(x)`, where `delta_hat` is a Version 35 surrogate trained on `x -> delta(x)`. This additive correction -- not co-kriging, not a Gaussian process, not a neural network -- is the entire V37 method, deliberately.
+
+### `FidelityModel`: one interface, two kinds of model, no duplicated solver
+
+`FidelityLevel` (`LOW`/`HIGH`, each carrying a relative `estimated_cost`) labels what a model represents; `FidelityModel` is the thing that evaluates it. `AnalyticalFidelityModel` wraps a plain, cheap callable (e.g. an Euler-Bernoulli beam formula) -- no FEA solve at all. `SimulationFidelityModel` wraps the *unmodified* Version 30 `Scenario`/`apply_scenario` override mechanism and `SimulationRunManager` -- the real solver is reused exactly as every other version reuses it, never duplicated for this purpose.
+
+### A paired dataset, reusing the V35 dataset abstraction for training
+
+`MultiFidelityDataset` stores `MultiFidelitySample` objects (`inputs`, `low_result`, and an optional `high_result`); a sample is "paired" once both exist. `compute_discrepancy` validates that the two results cover exactly the same responses before subtracting. `to_discrepancy_dataset()` converts every paired sample into a `femtoolkit.surrogate.datasets.SnapshotDataset` of `x -> delta(x)` -- the discrepancy surrogate itself is then trained with the completely unmodified `train_discrepancy_surrogate`/`train_surrogate` (Version 35), never a second regression framework.
+
+### The fused prediction is never a verified result
+
+`MultiFidelityModel.predict` returns a `FusedPrediction` keeping `low_fidelity_result`, `predicted_discrepancy`, and `fused_prediction` as three separate fields (`is_fused_prediction = True`, mirroring Version 35's `SurrogatePrediction.is_surrogate_prediction`). `verify_fused_prediction` checks it against a freshly-run real high-fidelity result and reports a `FusionAcceptanceStatus` (`IMPROVED`/`NOT_IMPROVED`/`VERIFICATION_FAILED`) -- **the correction is never assumed to help**: `compare_fidelity_accuracy` (reusing `femtoolkit.surrogate.metrics.compute_metrics` directly) reports the low-fidelity-only RMSE next to the fused-model RMSE and lets the numbers say whether fusion actually improved accuracy on that dataset.
+
+### A second, deliberately small Streamlit page
+
+A new **Multi-Fidelity** page extends the existing Version 36 quickstart app (`streamlit_app.py`) -- no new Streamlit architecture. It walks through configuring the low-/high-fidelity models, generating paired samples, training the discrepancy surrogate, and comparing a fused prediction against a real high-fidelity verification, with every number explicitly labeled `LOW-FIDELITY RESULT`, `MULTI-FIDELITY PREDICTION`, `HIGH-FIDELITY FEA`, or `VERIFICATION RESULT`.
+
+### Example usage
+
+```python
+from femtoolkit.multifidelity.dataset import MultiFidelityDataset, MultiFidelitySample
+from femtoolkit.multifidelity.discrepancy import train_discrepancy_surrogate
+from femtoolkit.multifidelity.model import MultiFidelityModel, verify_fused_prediction
+
+dataset = MultiFidelityDataset(feature_names=["mesh.thickness"], response_names=["maximum_displacement"])
+for point in training_points:
+    dataset.add_sample(MultiFidelitySample(
+        sample_id=str(point), inputs=point,
+        low_result=low_model.evaluate(point), high_result=high_model.evaluate(point),
+    ))
+
+discrepancy_model, report = train_discrepancy_surrogate(dataset)
+mf_model = MultiFidelityModel(low_fidelity_model=low_model, discrepancy_model=discrepancy_model)
+records = verify_fused_prediction(mf_model, high_model, held_out_points)
+print(records[0].status, records[0].fused_relative_error)   # verified, not just predicted
+```
+
+### Limitations
+
+Version 37 does **not** include Gaussian processes, co-kriging, deep learning, neural networks, Bayesian optimization, topology/shape optimization, digital twins, distributed/GPU/cloud computing, advanced reliability methods, complex multi-fidelity optimization, or adaptive fidelity selection -- see the Version 38 preview below. There is no automatic acceptance criterion for "the fusion is good enough": `compare_fidelity_accuracy`/`verify_fused_prediction` report the numbers, but deciding whether a fused model is acceptable for a given engineering use is left to the caller. Only the simple additive correction is implemented -- no multiplicative or hybrid discrepancy formulations.
 
 ## Project Structure
 
@@ -3543,6 +3591,22 @@ finite-element-toolkit/
 │   │                       # generate_initial_samples); results.py
 │   │                       # (AdaptiveStudyResult -- best verified vs. best
 │   │                       # surrogate-predicted design, kept separate)
+│   ├── multifidelity/       # Version 37 multi-fidelity modeling:
+│   │                       # fidelity.py (FidelityLevel -- LOW/HIGH;
+│   │                       # FidelityModel ABC; AnalyticalFidelityModel --
+│   │                       # cheap callable, no FEA; SimulationFidelityModel --
+│   │                       # reuses Scenario/SimulationRunManager unchanged;
+│   │                       # summarize_costs); dataset.py (MultiFidelitySample,
+│   │                       # MultiFidelityDataset, compute_discrepancy,
+│   │                       # to_discrepancy_dataset -- builds a Version 35
+│   │                       # SnapshotDataset); discrepancy.py
+│   │                       # (train_discrepancy_surrogate -- reuses Version 35
+│   │                       # train_surrogate unchanged); model.py
+│   │                       # (FusedPrediction, MultiFidelityModel,
+│   │                       # FusionAcceptanceStatus, verify_fused_prediction);
+│   │                       # validation.py (FidelityComparisonReport,
+│   │                       # compare_fidelity_accuracy -- low-fidelity-only vs.
+│   │                       # fused-model accuracy, never assumed to improve)
 │   ├── units/               # SI unit constants
 │   ├── exceptions/          # Custom exception types (incl. DegenerateElementError,
 │   │                       # DuplicateNodeCoordinatesError,
@@ -3593,8 +3657,9 @@ finite-element-toolkit/
 │   ├── optimization.md        # Version 32/33 engineering optimization guide
 │   ├── surrogate.md           # Version 35 reduced-order modeling and
 │   │                           # surrogate analysis guide
-│   └── adaptive.md            # Version 36 surrogate-assisted adaptive
-│                               # optimization guide
+│   ├── adaptive.md            # Version 36 surrogate-assisted adaptive
+│   │                           # optimization guide
+│   └── multifidelity.md       # Version 37 multi-fidelity modeling guide
 ├── examples/                  # Runnable example scripts (incl. studies/:
 │                               # cantilever_load_study.py,
 │                               # material_comparison_study.py; uncertainty/:
@@ -3619,12 +3684,13 @@ finite-element-toolkit/
 │                               # cantilever_stress_surrogate.py,
 │                               # pod_cantilever_displacement_field.py,
 │                               # surrogate_assisted_optimization.py; adaptive/:
-│                               # cantilever_surrogate_assisted_optimization.py)
-├── app/streamlit/              # Version 36 quickstart Streamlit app (no
-│                               # FEA/optimization/surrogate logic -- calls
-│                               # only existing library APIs): pages/
-│                               # (home, fea, optimization,
-│                               # surrogate_optimization, results);
+│                               # cantilever_surrogate_assisted_optimization.py;
+│                               # multifidelity/: cantilever_multifidelity_fusion.py)
+├── app/streamlit/              # Version 36/37 quickstart Streamlit app (no
+│                               # FEA/optimization/surrogate/multi-fidelity
+│                               # logic -- calls only existing library APIs):
+│                               # pages/ (home, fea, optimization,
+│                               # surrogate_optimization, multifidelity, results);
 │                               # plotting.py (small pandas-frame chart
 │                               # helpers for st.line_chart/scatter_chart)
 ├── streamlit_app.py            # Quickstart app entry point:
@@ -3665,10 +3731,14 @@ finite-element-toolkit/
     │                                 # validation, domain, models, POD/
     │                                 # ROM, snapshots, persistence,
     │                                 # integration with Version 30/31/33/34)
-    └── adaptive/                     # Version 36 dedicated suite (sampling,
-                                       # candidates, trust region, refinement,
-                                       # study, results -- real-FEA integration
-                                       # tests marked @pytest.mark.slow)
+    ├── adaptive/                     # Version 36 dedicated suite (sampling,
+    │                                  # candidates, trust region, refinement,
+    │                                  # study, results -- real-FEA integration
+    │                                  # tests marked @pytest.mark.slow)
+    └── multifidelity/                # Version 37 dedicated suite (fidelity,
+                                       # dataset, discrepancy, model, validation
+                                       # -- real-FEA integration test marked
+                                       # @pytest.mark.slow)
 ```
 
 ## Testing
@@ -3838,6 +3908,7 @@ python examples/surrogate/cantilever_stress_surrogate.py                     # V
 python examples/surrogate/pod_cantilever_displacement_field.py               # Version 35: POD basis from multi-case displacement fields + reconstruction error
 python examples/surrogate/surrogate_assisted_optimization.py                 # Version 35: surrogate-screened candidate, accepted only after high-fidelity verification
 python examples/adaptive/cantilever_surrogate_assisted_optimization.py       # Version 36: adaptive sampling + refinement, mass minimized under a displacement constraint
+python examples/multifidelity/cantilever_multifidelity_fusion.py             # Version 37: Euler-Bernoulli low fidelity + FEA high fidelity, discrepancy-corrected fused prediction
 ```
 
 ## Roadmap
@@ -3845,7 +3916,7 @@ python examples/adaptive/cantilever_surrogate_assisted_optimization.py       # V
 Future versions will build a more complete FEA solver on top of this foundation. None of the following is implemented yet:
 
 - **Version 28** — Advanced Preconditioning & Scalable Iterative Solvers: Jacobi and incomplete-LU/incomplete-Cholesky preconditioning, improved Conjugate Gradient and GMRES workflows, preconditioner selection, richer solver convergence diagnostics, more robust handling of difficult (ill-conditioned) sparse systems, iterative-solver benchmarking, and improved large-model robustness, building on the execution and performance infrastructure Versions 26-27 establish (`SolverConvergenceRecord.preconditioner`, added in Version 29, is reserved for this)
-- **Version 37** — Advanced Multi-Fidelity Modeling & Engineering Model Fusion: low/high-fidelity models, fidelity-aware datasets, model discrepancy, correction-based model fusion, cost-aware fidelity selection, multi-fidelity adaptive sampling, and high-fidelity verification, building on the Version 36 adaptive-sampling/trust-region foundation
+- **Version 38** — Advanced Engineering Digital Twin & Model Updating: engineering model calibration, online model updating, sensor-data integration, parameter estimation, model-discrepancy updating, monitoring, and reduced-order real-time prediction, building on the Version 37 multi-fidelity foundation
 - **Later** — Finite-strain viscoplasticity, crystal plasticity, anisotropic plasticity, damage mechanics, fracture mechanics, anisotropic hyperelasticity, Ogden and other advanced rubber models, mixed u-p (locking-free nearly-incompressible) elements, viscoelasticity, fully coupled nonlinear thermoplasticity, creep, contact, friction, phase-change heat transfer, fluid flow/CFD, electromagnetic analysis, an Updated Lagrangian formulation, the arc-length/Riks method, large-rotation beam kinematics, adaptive remeshing, explicit dynamics, unstructured/CAD-driven meshing, higher-order continuum elements, seismic-code response-spectrum combination rules, distributed-memory (MPI) or GPU solving, a full GUI redesign, PDF report generation, and more
 
 ## License
