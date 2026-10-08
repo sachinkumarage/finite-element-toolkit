@@ -1,27 +1,32 @@
-"""Multi-Fidelity page: Version 37 low-fidelity + high-fidelity + discrepancy fusion.
+"""Multi-Fidelity page (Version 37).
 
-Reuses :mod:`femtoolkit.multifidelity` (Version 37) directly -- which itself
-reuses :mod:`femtoolkit.surrogate` (Version 35) and the existing FEA pipeline. No
-fidelity-model, discrepancy, or fusion logic is implemented in this module.
+Surfaces the Version 37 multi-fidelity modeling framework
+(:mod:`femtoolkit.multifidelity`) inside the existing GUI, against the current
+project: a cheap Euler-Bernoulli beam formula (low fidelity) derived from the
+project's own geometry/material/load, the current project itself as the
+high-fidelity model, a discrepancy surrogate trained between them, and a fused
+prediction checked against real high-fidelity verification -- with no fidelity,
+discrepancy, or fusion logic implemented in this module itself.
 
-.. code-block:: text
+**Scope note.** The low-fidelity formula assumes a rectangular cantilever beam
+with a single tip load, ``mesh.thickness`` as the swept design variable, and
+``mesh.height``/``mesh.width`` fixed -- the same convention
+``examples/multifidelity/cantilever_multifidelity_fusion.py`` uses. It is not a
+general-purpose analytical model for an arbitrary project.
 
-    Design Point -> Low-Fidelity Model -> Low-Fidelity Result ->
-    Discrepancy Model -> Fused Prediction -> Optional High-Fidelity FEA -> Validation
-
-**The fused prediction is never shown as if it were an actual FEA result** --
-every section below labels its numbers LOW-FIDELITY RESULT, MULTI-FIDELITY
-PREDICTION, HIGH-FIDELITY FEA, or VERIFICATION RESULT.
+Every result is explicitly labeled **LOW-FIDELITY RESULT**, **MULTI-FIDELITY
+PREDICTION**, **HIGH-FIDELITY FEA**, or **VERIFICATION RESULT** -- the fused
+prediction is never shown as if it were an actual FEA result.
 """
 
 from __future__ import annotations
 
 import streamlit as st
 
-from app.streamlit.plotting import fidelity_error_comparison_frame, predicted_vs_actual_frame
 from femtoolkit.application.exceptions_display import describe_error
-from femtoolkit.application.project import BoundaryConditionConfig, LoadConfig, Project
 from femtoolkit.exceptions import FiniteElementToolkitError
+from femtoolkit.gui.components import require_project
+from femtoolkit.gui.state import AppState
 from femtoolkit.multifidelity.dataset import MultiFidelityDataset, MultiFidelitySample
 from femtoolkit.multifidelity.discrepancy import train_discrepancy_surrogate
 from femtoolkit.multifidelity.fidelity import (
@@ -37,71 +42,65 @@ from femtoolkit.studies.extractors import get_extractor
 from femtoolkit.surrogate.models import SURROGATE_MODEL_TYPES
 from femtoolkit.surrogate.workflows.training import TrainingConfig
 
-_DATASET_KEY = "quickstart_mf_dataset"
-_MODEL_KEY = "quickstart_mf_model"
-_REPORT_KEY = "quickstart_mf_report"
-_VERIFICATION_KEY = "quickstart_mf_verification"
+_DATASET_KEY = "femtoolkit_mf_dataset"
+_MODEL_KEY = "femtoolkit_mf_model"
+_REPORT_KEY = "femtoolkit_mf_report"
+_VERIFICATION_KEY = "femtoolkit_mf_verification"
 
 _RESPONSE_NAME = "maximum_displacement"
-_BEAM_LENGTH = 2.0
-_BEAM_HEIGHT = 0.4
 
 
-def _base_project(tip_load: float) -> Project:
-    project = Project(name="Multi-Fidelity Cantilever", analysis_type="linear_static")
-    project.material.youngs_modulus = 200e9
-    project.material.poisson_ratio = 0.3
-    project.material.density = 7850.0
-    project.mesh.width = _BEAM_LENGTH
-    project.mesh.height = _BEAM_HEIGHT
-    project.mesh.nx = 10
-    project.mesh.ny = 3
-    project.boundary_conditions = [
-        BoundaryConditionConfig(region="left", dof="X", value=0.0),
-        BoundaryConditionConfig(region="left", dof="Y", value=0.0),
-    ]
-    project.loads = [LoadConfig(region="right", dof="Y", magnitude=tip_load)]
-    return project
-
-
-def _analytical_tip_deflection(tip_load: float):
+def _analytical_tip_deflection(beam_length: float, beam_height: float, tip_load: float,
+                                youngs_modulus: float):
     def evaluate(point: dict[str, float]) -> dict[str, float]:
         thickness = point["mesh.thickness"]
-        moment_of_inertia = thickness * _BEAM_HEIGHT**3 / 12.0
-        deflection = abs(tip_load) * _BEAM_LENGTH**3 / (3 * 200e9 * moment_of_inertia)
+        moment_of_inertia = thickness * beam_height**3 / 12.0
+        deflection = abs(tip_load) * beam_length**3 / (3 * youngs_modulus * moment_of_inertia)
         return {_RESPONSE_NAME: deflection}
 
     return evaluate
 
 
-def render() -> None:
+def render(state: AppState) -> None:
     """Render the Multi-Fidelity page."""
     st.header("Multi-Fidelity")
     st.caption(
         "Low-Fidelity Model (Euler-Bernoulli beam, ignores shear deformation) + "
-        "High-Fidelity Model (continuum FEA) + Discrepancy Surrogate -> Fused Prediction."
+        "High-Fidelity Model (the current project's FEA) + Discrepancy Surrogate -> "
+        "Fused Prediction."
     )
+
+    if not require_project(state):
+        return
+
+    project = state.project
+    if not project.loads:
+        st.warning("The current project has no loads defined; add one on the Loads page first.")
+        return
 
     st.subheader("1/2. Low- and High-Fidelity Models")
     col_low, col_high = st.columns(2)
     col_low.metric("Low Fidelity", "Euler-Bernoulli beam")
     col_low.caption(f"Estimated cost: {LOW_FIDELITY.estimated_cost}")
-    col_high.metric("High Fidelity", "Continuum FEA")
+    col_high.metric("High Fidelity", "Current project (FEA)")
     col_high.caption(f"Estimated cost: {HIGH_FIDELITY.estimated_cost}")
 
     st.subheader("3. Design Parameters")
-    col_t_low, col_t_high, col_load, col_n = st.columns(4)
+    col_t_low, col_t_high, col_n = st.columns(3)
     thickness_low = col_t_low.number_input("Thickness min (m)", value=0.006, format="%.4f")
     thickness_high = col_t_high.number_input("Thickness max (m)", value=0.020, format="%.4f")
-    tip_load = col_load.number_input("Tip load (N)", value=-4000.0, step=500.0)
     n_samples = col_n.slider("Paired samples", 6, 30, 12)
 
     low_model = AnalyticalFidelityModel(
-        name="Euler-Bernoulli beam", evaluate_fn=_analytical_tip_deflection(tip_load),
+        name="Euler-Bernoulli beam",
+        evaluate_fn=_analytical_tip_deflection(
+            project.mesh.width, project.mesh.height, project.loads[0].magnitude,
+            project.material.youngs_modulus,
+        ),
         level=LOW_FIDELITY,
     )
     high_model = SimulationFidelityModel(
-        name="FEA cantilever", base_project=_base_project(tip_load),
+        name="FEA (current project)", base_project=project,
         response_extractors={_RESPONSE_NAME: get_extractor(_RESPONSE_NAME)},
         level=HIGH_FIDELITY,
     )
@@ -222,9 +221,9 @@ def render() -> None:
     fused_errors = [abs(h - f) for h, f in zip(high_values, fused_values, strict=True)]
 
     st.caption("Fused Prediction vs. High-Fidelity Result")
-    st.scatter_chart(predicted_vs_actual_frame(fused_values, high_values))
+    st.scatter_chart({"Fused Prediction": fused_values, "High-Fidelity FEA": high_values})
     st.caption("Low-Fidelity Error vs. Fused-Model Error")
-    st.line_chart(fidelity_error_comparison_frame(low_errors, fused_errors))
+    st.line_chart({"Low-Fidelity Error": low_errors, "Fused-Model Error": fused_errors})
 
 
 __all__ = ["render"]

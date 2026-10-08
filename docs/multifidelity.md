@@ -133,17 +133,24 @@ formula on held-out thickness values -- it reliably is, since the beam formula's
 error (neglected shear deformation) is a smooth, learnable function of
 thickness.
 
-## The Multi-Fidelity Streamlit page
+## The Multi-Fidelity GUI page
 
-Extends the existing Version 36 quickstart app (`streamlit_app.py`) with one
-more page -- no new Streamlit architecture. The workflow: configure the
-low-/high-fidelity models and design parameters, **Generate Samples**, review
-the discrepancy, select a surrogate method and **Train Discrepancy Model**,
-then **Predict** and optionally **Run High-Fidelity Verification** at a query
-point. Every result is explicitly labeled `LOW-FIDELITY RESULT`,
-`MULTI-FIDELITY PREDICTION`, `HIGH-FIDELITY FEA`, or `VERIFICATION RESULT` --
-never blurred together. No expensive FEA runs automatically on a Streamlit
-rerun; every step is gated behind its own button.
+As of Version 37.1, this workflow is a page in the full engineering GUI
+(`femtoolkit.gui`, `workflow_pages/multifidelity_page.py`, reachable via
+`streamlit run streamlit_app.py` or `streamlit run src/femtoolkit/gui/app.py`)
+rather than a separate application -- the standalone quickstart app this
+section originally described was merged into `femtoolkit.gui` in Version
+37.1 and no longer exists. The high-fidelity model is the *current* project
+(built on the Project/Material/Mesh/Loads pages); the low-fidelity model is
+the same Euler-Bernoulli beam formula, derived from that project's own
+geometry/material/load. The workflow: configure a thickness range and sample
+count, **Generate Samples**, review the discrepancy, select a surrogate
+method and **Train Discrepancy Model**, then **Predict** and optionally **Run
+High-Fidelity Verification** at a query point. Every result is explicitly
+labeled `LOW-FIDELITY RESULT`, `MULTI-FIDELITY PREDICTION`, `HIGH-FIDELITY
+FEA`, or `VERIFICATION RESULT` -- never blurred together. No expensive FEA
+runs automatically on a Streamlit rerun; every step is gated behind its own
+button.
 
 ## Advantages and limitations
 

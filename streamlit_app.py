@@ -1,56 +1,19 @@
-"""Quickstart Streamlit application entry point (Version 37).
+"""Streamlit Community Cloud entry point: launches the full engineering GUI.
 
-Run with::
+Streamlit Community Cloud's default deployment flow expects a main file at the
+repository root; this module exists only to satisfy that convention. It
+contains no pages, state, or logic of its own -- it simply calls
+:func:`femtoolkit.gui.app.main`, the same entry point ``streamlit run
+src/femtoolkit/gui/app.py`` already uses, so both commands launch the
+identical application::
 
     streamlit run streamlit_app.py
-
-Deliberately thin: it sets up the page, builds the sidebar navigation, and
-dispatches to the selected page module under :mod:`app.streamlit.pages`. It
-contains no FEA, optimization, surrogate, adaptive-sampling, or multi-fidelity
-logic itself -- see those pages, and the :mod:`femtoolkit` library they call,
-for that.
-
-This is a separate, smaller companion to the existing full engineering GUI
-(``streamlit run src/femtoolkit/gui/app.py``) -- six pages for a quick local
-demo and future Streamlit Community Cloud deployment, not a replacement for the
-full project-building workflow.
+    streamlit run src/femtoolkit/gui/app.py
 """
 
 from __future__ import annotations
 
-import streamlit as st
-
-from app.streamlit.pages import (
-    fea,
-    home,
-    multifidelity,
-    optimization,
-    results,
-    surrogate_optimization,
-)
-from femtoolkit.config import __version__
-
-_PAGES = {
-    "Home": home,
-    "FEA Analysis": fea,
-    "Optimization": optimization,
-    "Surrogate-Assisted Optimization": surrogate_optimization,
-    "Multi-Fidelity": multifidelity,
-    "Results": results,
-}
-
-
-def main() -> None:
-    """Configure the page and render the currently selected page."""
-    st.set_page_config(page_title="Finite Element Toolkit", page_icon="\U0001f4d0", layout="wide")
-
-    with st.sidebar:
-        st.title("Finite Element Toolkit")
-        st.caption(f"Quickstart -- v{__version__}")
-        page_name = st.radio("Navigation", options=list(_PAGES), label_visibility="collapsed")
-
-    _PAGES[page_name].render()
-
+from femtoolkit.gui.app import main
 
 if __name__ == "__main__":
     main()

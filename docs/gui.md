@@ -209,15 +209,51 @@ installed, the page shows a clear install message instead of failing;
 the 2D Matplotlib results on the Results page remain available either
 way, since Matplotlib is a core dependency.
 
+## Version 36 adaptive optimization integration
+
+The Adaptive Optimization page (`workflow_pages/adaptive_page.py`) reuses
+`femtoolkit.adaptive.study.AdaptiveStudy` directly -- no sampling, surrogate,
+or optimization logic in the page itself. A user builds one or more design
+variables against the *current* project (a dotted override path, a name, and
+a continuous lower/upper bound), picks an objective response and an optional
+constraint from the same named extractors every other page uses
+(`femtoolkit.studies.extractors.EXTRACTORS`), configures the refinement loop
+(sampling strategy, exploration/exploitation weights, iteration/candidate
+counts, error tolerance), and runs it behind one "Run Adaptive Study" button.
+Results show the best *verified* design (never just a prediction), the final
+surrogate's validation metrics, a convergence chart, and each iteration's
+surrogate prediction next to its high-fidelity verification. See
+[`docs/adaptive.md`](adaptive.md) for the underlying library.
+
+## Version 37 multi-fidelity integration
+
+The Multi-Fidelity page (`workflow_pages/multifidelity_page.py`) reuses
+`femtoolkit.multifidelity` directly -- no fidelity, discrepancy, or fusion
+logic in the page itself. The high-fidelity model is always the current
+project; the low-fidelity model is a cheap Euler-Bernoulli beam formula
+derived from that same project's geometry, material, and load (assuming a
+rectangular cantilever with `mesh.thickness` as the swept design variable --
+the same convention the standalone example uses). The workflow: configure a
+thickness range and sample count, **Generate Samples**, review the
+discrepancy, select a surrogate type and **Train Discrepancy Model**, then
+**Predict** and optionally **Run High-Fidelity Verification** at a query
+point. Every number is explicitly labeled `LOW-FIDELITY RESULT`,
+`MULTI-FIDELITY PREDICTION`, `HIGH-FIDELITY FEA`, or `VERIFICATION RESULT`.
+See [`docs/multifidelity.md`](multifidelity.md) for the underlying library.
+
 ## Running the GUI
 
 ```bash
 pip install -e ".[gui,viz3d]"   # viz3d optional, for the 3D Visualization page
 streamlit run src/femtoolkit/gui/app.py
+# or, equivalently (Version 37.1 -- a thin launcher for Streamlit Community Cloud):
+streamlit run streamlit_app.py
 ```
 
 The core FEA library and its full test suite (`pytest`) never require
-Streamlit or PyVista to be installed.
+Streamlit or PyVista to be installed. This is the toolkit's only Streamlit
+application -- the separate quickstart app introduced in Version 36 was
+merged into this one in Version 37.1.
 
 ## Example workflow
 

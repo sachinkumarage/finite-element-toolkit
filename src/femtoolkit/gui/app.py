@@ -19,10 +19,12 @@ import streamlit as st
 from femtoolkit.config import __version__
 from femtoolkit.gui.state import AppState
 from femtoolkit.gui.workflow_pages import (
+    adaptive_page,
     boundary_conditions_page,
     loads_page,
     material_page,
     mesh_page,
+    multifidelity_page,
     optimization_page,
     project_page,
     results_page,
@@ -50,6 +52,8 @@ _PAGES = {
     "Uncertainty Analysis": uncertainty_page,
     "Optimization": optimization_page,
     "Surrogate / ROM": surrogate_page,
+    "Adaptive Optimization": adaptive_page,
+    "Multi-Fidelity": multifidelity_page,
 }
 
 

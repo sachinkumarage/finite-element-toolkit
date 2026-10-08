@@ -4,8 +4,9 @@ Answers the question Version 35 left to a human: *once a surrogate exists, how
 should it actually guide a design search, and when should it be trusted enough to
 stop asking for another expensive FEA solve?* This document covers the adaptive
 loop, candidate generation, the four sampling strategies, the trust-region
-foundation, high-fidelity verification, and the Streamlit quickstart app. See the
-main [README](../README.md#version-36) for a shorter overview.
+foundation, high-fidelity verification, and the Adaptive Optimization GUI page
+(`femtoolkit.gui`, as of Version 37.1). See the main
+[README](../README.md#version-36) for a shorter overview.
 
 ## The core loop
 
@@ -137,46 +138,50 @@ found** within the configured budget.
   verification record is the unmodified Version 35 implementation -- nothing is
   duplicated.
 
-## The quickstart Streamlit application
+## The Adaptive Optimization GUI page
 
-A separate, deliberately small application lives at the repository root
-(`streamlit_app.py`) and `app/streamlit/` -- distinct from the existing,
-full-featured engineering GUI at `femtoolkit.gui` (`streamlit run
-src/femtoolkit/gui/app.py`). The core library never imports Streamlit; every page
-only calls existing library APIs.
+As of Version 37.1, this workflow is a page in the full engineering GUI
+(`femtoolkit.gui`, `workflow_pages/adaptive_page.py`) rather than a separate
+application -- the standalone quickstart app this section originally
+described was merged into `femtoolkit.gui` in Version 37.1 and no longer
+exists. The core library never imports Streamlit; the page only calls
+`femtoolkit.adaptive`/`femtoolkit.application` APIs.
 
 ### Installing and running
 
 ```bash
 pip install -e ".[gui]"
 streamlit run streamlit_app.py
+# or, equivalently:
+streamlit run src/femtoolkit/gui/app.py
 ```
 
-### Pages
+Then open the **Adaptive Optimization** page from the sidebar.
 
-- **Home** -- what the toolkit is, its major capabilities, the current version.
-- **FEA Analysis** -- run the cantilever example with user-chosen parameters
-  through the real solver.
-- **Optimization** -- a plain Version 33 optimization run (no surrogate).
-- **Surrogate-Assisted Optimization** -- the Version 36 core workflow:
-  configure design variables, train a surrogate, run adaptive refinement, and
-  see every surrogate prediction next to its high-fidelity verification.
-- **Results** -- the consolidated best-verified-design summary.
+### Workflow
 
-No expensive FEA runs automatically on a Streamlit rerun -- every page gates its
-work behind an explicit button ("Run FEA", "Run Optimization", "Run
-Surrogate-Assisted Optimization").
+Unlike the former quickstart app's hardcoded demonstration project, the GUI
+page operates on the *current* project (built on the Project/Material/Mesh/
+Boundary Conditions/Loads pages): add one or more design variables (a dotted
+override path, a name, and a continuous bound), choose an objective response
+and an optional constraint from the same named extractors every other page
+uses, configure the refinement loop, and run it. Results show the best
+*verified* design, the final surrogate's validation metrics, a convergence
+chart, and each iteration's surrogate prediction next to its high-fidelity
+verification.
+
+No expensive FEA runs automatically on a Streamlit rerun -- every action is
+gated behind an explicit button ("Add Variable", "Run Adaptive Study").
 
 ### Deployment preparation
 
-The app is ready for a future Streamlit Community Cloud deployment:
-dependencies are declared in `pyproject.toml` and mirrored in a root
-`requirements.txt` (`.[gui]`, installing this package and Streamlit from the
-repository itself -- no absolute local paths), no secrets are read or stored,
-and every page starts from repository files only. To deploy: push this
-repository to GitHub, create a new Streamlit Community Cloud app pointing at it,
-set the main file path to `streamlit_app.py`, and deploy -- no further
-infrastructure work is in scope for this version.
+The GUI is ready for a Streamlit Community Cloud deployment: dependencies are
+declared in `pyproject.toml` and mirrored in a root `requirements.txt`
+(`.[gui]`, installing this package and Streamlit from the repository itself --
+no absolute local paths), no secrets are read or stored, and every page starts
+from repository files only. To deploy: push this repository to GitHub, create
+a new Streamlit Community Cloud app pointing at it, set the main file path to
+`streamlit_app.py`, and deploy.
 
 ## Limitations
 
