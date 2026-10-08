@@ -3089,6 +3089,64 @@ print(model.predict_point({"mesh.thickness": 0.009}).values)  # a labeled surrog
 
 Version 35 does **not** include neural networks, deep learning, Gaussian process regression, Bayesian optimization, advanced active learning, topology/shape optimization, adjoint methods, distributed/GPU surrogate training, or formal uncertainty quantification of a surrogate's own prediction error. `recommend_candidates` only ever ranks a caller-supplied candidate pool -- it never proposes new candidate points itself and never triggers a high-fidelity simulation on its own. `Evaluator`/`SurrogateEvaluator` is architecture only in this version; no Version 33 optimization algorithm accepts one yet. POD in this version reduces whatever full-field vector a caller extracts from a completed simulation run -- it does not itself know how to extract a nodal displacement field from every analysis type.
 
+## Version 36
+
+Version 35 built a transparent surrogate/ROM approximation layer, but left two questions unanswered: *where, exactly, should the next expensive FEA sample be spent*, and *how does someone outside a terminal actually use any of this?* Version 36 adds `femtoolkit.adaptive` -- a small, transparent adaptive-sampling and refinement loop on top of the Version 35 surrogate -- and a lightweight, separate Streamlit quickstart application. The full technical guide is [`docs/adaptive.md`](docs/adaptive.md); this section is the shorter architectural summary matching every prior version's style.
+
+### The adaptive loop, built from existing parts
+
+`AdaptiveStudy` (`femtoolkit.adaptive.study`) runs `Initial Samples -> Train Surrogate -> Candidate Search -> High-Fidelity Verification -> Add Sample -> Retrain -> Repeat` using nothing new at the lowest level: `generate_initial_samples` executes points through the unmodified Version 30 `Scenario`/Version 34 `evaluate_simulation_batch` path; `train_surrogate` and `verify_against_high_fidelity` are the unmodified Version 35 functions; candidate ranking reuses `is_better_evaluation`/`feasibility_rank` from Version 32/33 unchanged. `femtoolkit.adaptive` is new orchestration glue, not a new simulation or regression engine.
+
+### Four transparent sampling strategies, one formula
+
+`rank_candidates` (`femtoolkit.adaptive.sampling`) scores a candidate pool with `SamplingStrategy.DISTANCE` (pure exploration, farthest from training data in `normalized_distance` space), `.ERROR` (prioritizing a worse Version 35 `DomainStatus` as a transparent proxy for expected surrogate error), `.OBJECTIVE` (pure exploitation, best predicted value), or `.HYBRID` (`Score(x) = w_e * E(x) + w_o * O(x)`). None of these claims to be a mathematically optimal acquisition function -- each is a documented, inspectable heuristic.
+
+### Verification never optional, status never inflated
+
+Every candidate `run_refinement_step` selects is checked against real FEA, never assumed correct from the surrogate alone. `SurrogateAcceptanceState` (`SURROGATE_ONLY`/`PENDING_VERIFICATION`/`VERIFIED`/`VERIFICATION_FAILED`/`REQUIRES_REFINEMENT`) is computed per iteration from the actual verification outcome and the worst relative error across every verified response -- a surrogate that predicts one response (e.g. a purely geometric mass) almost exactly can still be flagged `REQUIRES_REFINEMENT` if another response (e.g. displacement) disagrees beyond the configured tolerance. `AdaptiveStudyResult` separates `best_surrogate_predicted_design` from `best_verified_design` throughout, and a design is reported only as "the best verified design found," never as "optimal."
+
+### A trust-region foundation, deliberately simple
+
+`TrustRegion` (`femtoolkit.adaptive.trust_region`) is the ball `||x - x_c|| <= Delta` in normalized design space, with `expand()`/`contract()` driven by `prediction_agreement`'s diagnostic ratio (`rho`, the ratio of actual to predicted improvement). This is a foundation a future version can build a real trust-region algorithm on top of, not a trust-region optimizer itself.
+
+### A second, deliberately smaller Streamlit application
+
+`streamlit_app.py` (repository root) and `app/streamlit/` are a new, separate quickstart application -- five pages (Home, FEA Analysis, Optimization, Surrogate-Assisted Optimization, Results), distinct from the existing full engineering GUI (`femtoolkit.gui`, still reachable via `streamlit run src/femtoolkit/gui/app.py`). The core library has zero Streamlit dependency; every page only calls existing library APIs, and no expensive FEA ever runs on a bare Streamlit rerun -- every run is gated behind an explicit button.
+
+### Example usage
+
+```python
+from femtoolkit.adaptive.refinement import RefinementConfig
+from femtoolkit.adaptive.sampling import SamplingStrategy
+from femtoolkit.adaptive.study import AdaptiveStudy
+
+study = AdaptiveStudy(
+    base_project=base_project, design_variables=[thickness, width],
+    objective=minimize_mass, constraints=[max_displacement],
+    response_extractors={"mass": mass_extractor, "maximum_displacement": get_extractor("maximum_displacement")},
+    refinement_config=RefinementConfig(max_iterations=4, sampling_strategy=SamplingStrategy.HYBRID, seed=0),
+)
+result = study.run(n_initial_samples=10)
+print(result.best_verified_design, result.status)   # the best VERIFIED design, never just predicted
+```
+
+### Limitations
+
+Version 36 does **not** include multi-fidelity modeling, co-kriging, Gaussian processes, deep learning, neural networks, topology/shape/adjoint optimization, reinforcement learning, distributed/GPU/cloud execution, digital twins, or formal reliability methods (FORM/SORM) -- see the Version 37 preview below. `rank_candidates` only ever scores a caller-generated candidate pool; it does not solve a continuous acquisition-function optimization problem itself. `SurrogateEvaluator` is still not wired into a Version 33 population-based algorithm's own internal search loop -- `AdaptiveStudy`'s candidate search is a separate, simpler mechanism built directly on `rank_candidates`.
+
+## Running the Streamlit Application
+
+The quickstart Streamlit app (`streamlit_app.py`) is a small, separate companion to the full engineering GUI (`femtoolkit.gui`) -- five pages, no FEA/optimization/surrogate logic implemented outside the core library.
+
+```bash
+pip install -e ".[gui]"
+streamlit run streamlit_app.py
+```
+
+Pages: **Home** (what the toolkit is), **FEA Analysis** (run the cantilever example), **Optimization** (a plain Version 33 search), **Surrogate-Assisted Optimization** (the Version 36 core workflow), and **Results** (the consolidated best-verified-design summary). See [`docs/adaptive.md`](docs/adaptive.md#the-quickstart-streamlit-application) for a page-by-page walkthrough.
+
+**Future Streamlit Community Cloud deployment.** Push this repository to GitHub, create a new app on [streamlit.io/cloud](https://streamlit.io/cloud) pointing at it, set the main file path to `streamlit_app.py`, and deploy. A root `requirements.txt` (`.[gui]`) already installs this package and its `gui` extra from the repository itself -- no absolute local paths, no secrets, no further setup needed for this version.
+
 ## Project Structure
 
 ```text
@@ -3472,6 +3530,19 @@ finite-element-toolkit/
 │   │                       # architecture; verify_against_high_fidelity;
 │   │                       # recommend_candidates -- adaptive-sampling
 │   │                       # foundation)
+│   ├── adaptive/            # Version 36 surrogate-assisted adaptive
+│   │                       # optimization: sampling.py (normalized_distance,
+│   │                       # SamplingStrategy -- DISTANCE/ERROR/OBJECTIVE/
+│   │                       # HYBRID, rank_candidates); candidates.py
+│   │                       # (generate_candidate_pool, clip_to_bounds);
+│   │                       # trust_region.py (TrustRegion -- expand/contract);
+│   │                       # refinement.py (RefinementConfig,
+│   │                       # SurrogateAcceptanceState, prediction_agreement,
+│   │                       # run_refinement_step -- one add-sample-and-retrain
+│   │                       # iteration); study.py (AdaptiveStudy,
+│   │                       # generate_initial_samples); results.py
+│   │                       # (AdaptiveStudyResult -- best verified vs. best
+│   │                       # surrogate-predicted design, kept separate)
 │   ├── units/               # SI unit constants
 │   ├── exceptions/          # Custom exception types (incl. DegenerateElementError,
 │   │                       # DuplicateNodeCoordinatesError,
@@ -3520,8 +3591,10 @@ finite-element-toolkit/
 │   ├── studies.md             # Version 30 simulation studies guide
 │   ├── uncertainty.md         # Version 31 uncertainty quantification guide
 │   ├── optimization.md        # Version 32/33 engineering optimization guide
-│   └── surrogate.md           # Version 35 reduced-order modeling and
-│                               # surrogate analysis guide
+│   ├── surrogate.md           # Version 35 reduced-order modeling and
+│   │                           # surrogate analysis guide
+│   └── adaptive.md            # Version 36 surrogate-assisted adaptive
+│                               # optimization guide
 ├── examples/                  # Runnable example scripts (incl. studies/:
 │                               # cantilever_load_study.py,
 │                               # material_comparison_study.py; uncertainty/:
@@ -3545,7 +3618,19 @@ finite-element-toolkit/
 │                               # cantilever_displacement_surrogate.py,
 │                               # cantilever_stress_surrogate.py,
 │                               # pod_cantilever_displacement_field.py,
-│                               # surrogate_assisted_optimization.py)
+│                               # surrogate_assisted_optimization.py; adaptive/:
+│                               # cantilever_surrogate_assisted_optimization.py)
+├── app/streamlit/              # Version 36 quickstart Streamlit app (no
+│                               # FEA/optimization/surrogate logic -- calls
+│                               # only existing library APIs): pages/
+│                               # (home, fea, optimization,
+│                               # surrogate_optimization, results);
+│                               # plotting.py (small pandas-frame chart
+│                               # helpers for st.line_chart/scatter_chart)
+├── streamlit_app.py            # Quickstart app entry point:
+│                               # `streamlit run streamlit_app.py`
+├── requirements.txt            # `.[gui]` -- installs this package + the
+│                               # gui extra, for Streamlit Community Cloud
 └── tests/
     ├── ...                      # Unit tests, one file per module
     ├── validation/                # Engineering validation against
@@ -3575,11 +3660,15 @@ finite-element-toolkit/
     │                                 # differential evolution, genetic
     │                                 # algorithm, particle swarm, NSGA-II,
     │                                 # robust design, benchmarks)
-    └── surrogate/                    # Version 35 dedicated suite
-                                       # (datasets, scaling, metrics,
-                                       # validation, domain, models, POD/
-                                       # ROM, snapshots, persistence,
-                                       # integration with Version 30/31/33/34)
+    ├── surrogate/                    # Version 35 dedicated suite
+    │                                 # (datasets, scaling, metrics,
+    │                                 # validation, domain, models, POD/
+    │                                 # ROM, snapshots, persistence,
+    │                                 # integration with Version 30/31/33/34)
+    └── adaptive/                     # Version 36 dedicated suite (sampling,
+                                       # candidates, trust region, refinement,
+                                       # study, results -- real-FEA integration
+                                       # tests marked @pytest.mark.slow)
 ```
 
 ## Testing
@@ -3748,6 +3837,7 @@ python examples/surrogate/cantilever_displacement_surrogate.py               # V
 python examples/surrogate/cantilever_stress_surrogate.py                     # Version 35: stress surrogate, verified against held-out high-fidelity FEA
 python examples/surrogate/pod_cantilever_displacement_field.py               # Version 35: POD basis from multi-case displacement fields + reconstruction error
 python examples/surrogate/surrogate_assisted_optimization.py                 # Version 35: surrogate-screened candidate, accepted only after high-fidelity verification
+python examples/adaptive/cantilever_surrogate_assisted_optimization.py       # Version 36: adaptive sampling + refinement, mass minimized under a displacement constraint
 ```
 
 ## Roadmap
@@ -3755,7 +3845,7 @@ python examples/surrogate/surrogate_assisted_optimization.py                 # V
 Future versions will build a more complete FEA solver on top of this foundation. None of the following is implemented yet:
 
 - **Version 28** — Advanced Preconditioning & Scalable Iterative Solvers: Jacobi and incomplete-LU/incomplete-Cholesky preconditioning, improved Conjugate Gradient and GMRES workflows, preconditioner selection, richer solver convergence diagnostics, more robust handling of difficult (ill-conditioned) sparse systems, iterative-solver benchmarking, and improved large-model robustness, building on the execution and performance infrastructure Versions 26-27 establish (`SolverConvergenceRecord.preconditioner`, added in Version 29, is reserved for this)
-- **Version 36** — Advanced Surrogate-Assisted Optimization & Adaptive Engineering Design: adaptive sampling that actually proposes new candidate points (not just scores a caller-supplied pool, as Version 35's `recommend_candidates` foundation does), wiring `SurrogateEvaluator` into the Version 33 optimization algorithms themselves, active-learning-style design refinement, uncertainty-aware surrogate prediction, surrogate error indicators, automatic high-fidelity verification of optimization candidates, trust-region concepts for surrogate-based optimization, adaptive design-of-experiments, multi-fidelity modeling (high-fidelity/low-fidelity model fusion), and deeper integration with Version 31 robust design and Version 34 parallel execution
+- **Version 37** — Advanced Multi-Fidelity Modeling & Engineering Model Fusion: low/high-fidelity models, fidelity-aware datasets, model discrepancy, correction-based model fusion, cost-aware fidelity selection, multi-fidelity adaptive sampling, and high-fidelity verification, building on the Version 36 adaptive-sampling/trust-region foundation
 - **Later** — Finite-strain viscoplasticity, crystal plasticity, anisotropic plasticity, damage mechanics, fracture mechanics, anisotropic hyperelasticity, Ogden and other advanced rubber models, mixed u-p (locking-free nearly-incompressible) elements, viscoelasticity, fully coupled nonlinear thermoplasticity, creep, contact, friction, phase-change heat transfer, fluid flow/CFD, electromagnetic analysis, an Updated Lagrangian formulation, the arc-length/Riks method, large-rotation beam kinematics, adaptive remeshing, explicit dynamics, unstructured/CAD-driven meshing, higher-order continuum elements, seismic-code response-spectrum combination rules, distributed-memory (MPI) or GPU solving, a full GUI redesign, PDF report generation, and more
 
 ## License

@@ -1,0 +1,5 @@
+# Installs this package (and its "gui" extra, which pulls in Streamlit) from the
+# repository itself -- no absolute paths, no external index beyond PyPI. Used by
+# Streamlit Community Cloud's default build, and by `pip install -r requirements.txt`
+# locally as an alternative to `pip install -e ".[gui]"`.
+.[gui]

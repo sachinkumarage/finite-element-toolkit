@@ -457,3 +457,29 @@ class IncompatibleModelVersionError(SurrogateError):
     attempting to deserialize a structure that may have since changed
     shape.
     """
+
+
+class AdaptiveOptimizationError(FiniteElementToolkitError):
+    """Base class for errors raised by :mod:`femtoolkit.adaptive` (Version 36).
+
+    Catching this exception handles any problem specific to adaptive
+    sampling, candidate search, trust regions, or adaptive refinement
+    without needing to know the precise cause.
+    """
+
+
+class InvalidTrustRegionConfigurationError(AdaptiveOptimizationError):
+    """Raised when a :class:`~femtoolkit.adaptive.trust_region.TrustRegion` is misconfigured.
+
+    For example, a non-positive radius, or ``min_radius`` greater than
+    ``max_radius``.
+    """
+
+
+class InsufficientInitialSamplesError(AdaptiveOptimizationError):
+    """Raised when too few initial high-fidelity samples were provided to fit a surrogate.
+
+    An adaptive study needs enough initial snapshots for its configured
+    surrogate model type to be fit at all (see
+    :meth:`~femtoolkit.surrogate.models.base.SurrogateModel.fit`).
+    """

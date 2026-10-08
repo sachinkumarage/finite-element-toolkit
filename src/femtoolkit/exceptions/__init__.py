@@ -1,6 +1,7 @@
 """Custom exception types shared across the Finite Element Toolkit domain model."""
 
 from femtoolkit.exceptions.exceptions import (
+    AdaptiveOptimizationError,
     ConstitutiveUpdateError,
     DegenerateElementError,
     DuplicateIDError,
@@ -13,6 +14,7 @@ from femtoolkit.exceptions.exceptions import (
     IncompatibleModelVersionError,
     InconsistentSnapshotError,
     InsufficientConstraintsError,
+    InsufficientInitialSamplesError,
     InsufficientSnapshotsError,
     InvalidAnalysisError,
     InvalidDeformationGradientError,
@@ -25,6 +27,7 @@ from femtoolkit.exceptions.exceptions import (
     InvalidReducedBasisConfigurationError,
     InvalidScalingConfigurationError,
     InvalidSolverConfigurationError,
+    InvalidTrustRegionConfigurationError,
     ModelPersistenceError,
     NonlinearConvergenceError,
     SingularSystemError,
@@ -45,6 +48,7 @@ from femtoolkit.exceptions.exceptions import (
 )
 
 __all__ = [
+    "AdaptiveOptimizationError",
     "ConstitutiveUpdateError",
     "DegenerateElementError",
     "DuplicateIDError",
@@ -57,6 +61,7 @@ __all__ = [
     "IncompatibleModelVersionError",
     "InconsistentSnapshotError",
     "InsufficientConstraintsError",
+    "InsufficientInitialSamplesError",
     "InsufficientSnapshotsError",
     "InvalidAnalysisError",
     "InvalidDeformationGradientError",
@@ -69,6 +74,7 @@ __all__ = [
     "InvalidReducedBasisConfigurationError",
     "InvalidScalingConfigurationError",
     "InvalidSolverConfigurationError",
+    "InvalidTrustRegionConfigurationError",
     "ModelPersistenceError",
     "NonlinearConvergenceError",
     "SingularSystemError",
