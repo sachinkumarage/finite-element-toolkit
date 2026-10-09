@@ -241,6 +241,20 @@ point. Every number is explicitly labeled `LOW-FIDELITY RESULT`,
 `MULTI-FIDELITY PREDICTION`, `HIGH-FIDELITY FEA`, or `VERIFICATION RESULT`.
 See [`docs/multifidelity.md`](multifidelity.md) for the underlying library.
 
+## Version 38 digital twin integration
+
+The Digital Twin page (`workflow_pages/digital_twin_page.py`) reuses
+`femtoolkit.digital_twin` directly -- no measurement-handling, calibration, or
+accuracy-metric logic in the page itself. It operates on the *current*
+project: define baseline model parameters (a dotted override path, a
+baseline value, bounds, and an updatable flag), enter a measurement manually
+or **Generate Synthetic Measurement** (always labeled `SYNTHETIC`), **Run
+Baseline Simulation**, **Run Model Updating**, and review the comparison
+section's charts -- measured vs. simulated, residual before/after, parameter
+before/after, the calibration objective before/after, and model-update
+convergence. See [`docs/digital_twin.md`](digital_twin.md) for the underlying
+library.
+
 ## Running the GUI
 
 ```bash

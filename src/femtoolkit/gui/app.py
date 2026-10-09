@@ -21,6 +21,7 @@ from femtoolkit.gui.state import AppState
 from femtoolkit.gui.workflow_pages import (
     adaptive_page,
     boundary_conditions_page,
+    digital_twin_page,
     loads_page,
     material_page,
     mesh_page,
@@ -54,6 +55,7 @@ _PAGES = {
     "Surrogate / ROM": surrogate_page,
     "Adaptive Optimization": adaptive_page,
     "Multi-Fidelity": multifidelity_page,
+    "Digital Twin": digital_twin_page,
 }
 
 
